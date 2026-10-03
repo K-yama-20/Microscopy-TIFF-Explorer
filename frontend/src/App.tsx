@@ -1,4 +1,5 @@
 import { AppHeader } from './components/AppHeader'
+import { TiffUpload } from './components/TiffUpload'
 
 export function App() {
   return (
@@ -15,26 +16,16 @@ export function App() {
           <div className="status-card" role="status">
             <span className="status-indicator" aria-hidden="true" />
             <div>
-              <strong>Project foundation is ready</strong>
+              <strong>TIFF selection is ready</strong>
               <p>
-                TIFF upload and inspection will arrive in the next milestone.
+                Validate a file locally before sending it for analysis in the
+                next step.
               </p>
             </div>
           </div>
         </section>
 
-        <aside className="workflow-card" aria-label="Planned workflow">
-          <p className="card-label">MVP workflow</p>
-          <ol>
-            <li>Upload a TIFF file</li>
-            <li>Inspect T, Z, and C dimensions</li>
-            <li>Preview and export image planes</li>
-          </ol>
-          <p className="privacy-note">
-            Files will be processed temporarily and will not be stored as a
-            permanent library.
-          </p>
-        </aside>
+        <TiffUpload />
       </main>
     </div>
   )
