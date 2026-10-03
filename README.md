@@ -49,6 +49,7 @@ On macOS or Linux, replace `backend/.venv/Scripts/python` with
 cd frontend
 pnpm format:check
 pnpm lint
+pnpm test
 pnpm build
 
 cd ../backend
@@ -73,7 +74,7 @@ Microscopy-TIFF-Explorer/
 ```
 
 Implementation is organized into ten roadmap steps. See
-[`docs/ROADMAP.md`](docs/ROADMAP.md). The current foundation intentionally does
-not include TIFF upload or persistent storage; those capabilities are introduced
-in later roadmap steps.
+[`docs/ROADMAP.md`](docs/ROADMAP.md). The frontend currently supports local TIFF
+selection and pre-upload validation. API upload, TIFF processing, and persistent
+storage are not included at this stage.
 
