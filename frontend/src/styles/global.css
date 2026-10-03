@@ -382,6 +382,47 @@ a {
   margin-top: 18px;
 }
 
+.upload-status,
+.upload-result {
+  margin: 14px 0 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.upload-status {
+  color: #c8e8df;
+}
+
+.upload-result {
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+}
+
+.upload-result--success {
+  display: grid;
+  gap: 3px;
+  color: #ddf8ef;
+  background: rgba(39, 169, 141, 0.2);
+  border-color: rgba(129, 217, 196, 0.32);
+}
+
+.upload-result--success span,
+.upload-result--success code {
+  overflow-wrap: anywhere;
+}
+
+.upload-result--success code {
+  color: #acdacf;
+  font-size: 0.75rem;
+}
+
+.upload-result--error {
+  color: #ffe9e7;
+  background: rgba(178, 65, 54, 0.24);
+  border-color: rgba(255, 184, 177, 0.36);
+}
+
 .primary-button,
 .secondary-button {
   min-height: 46px;

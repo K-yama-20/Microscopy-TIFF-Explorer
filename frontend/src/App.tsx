@@ -18,8 +18,8 @@ export function App() {
             <div>
               <strong>TIFF selection is ready</strong>
               <p>
-                Validate a file locally before sending it for analysis in the
-                next step.
+                Validate locally, then upload securely for temporary server-side
+                processing.
               </p>
             </div>
           </div>
