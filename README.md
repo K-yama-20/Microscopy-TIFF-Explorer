@@ -43,6 +43,33 @@ On macOS or Linux, replace `backend/.venv/Scripts/python` with
 `backend/.venv/bin/python`. The API is available at `http://localhost:8000`, and
 `GET http://localhost:8000/health` returns `{ "status": "ok" }`.
 
+The frontend uploads valid files to `POST /api/tiff/upload` as multipart form
+data. A successful upload returns HTTP `201` with an opaque file identifier:
+
+```json
+{
+  "file_id": "95ed59ce-198b-4f17-89da-74e17d457df3",
+  "filename": "sample.tif"
+}
+```
+
+The backend reads the upload in chunks, enforces its own extension and size
+checks, and stores the file as `<uuid>.tif` or `<uuid>.tiff`. When
+`TEMP_STORAGE_DIR` is unset, files are written beneath the operating system's
+temporary directory in `microscopy-tiff-explorer/`. Upload metadata is kept in
+memory for later processing steps; no database or permanent storage is used.
+
+Backend runtime settings are supplied as environment variables:
+
+```powershell
+$env:TEMP_STORAGE_DIR = "C:\path\to\temporary-storage"
+$env:MAX_UPLOAD_SIZE_MB = "100"
+$env:ALLOWED_ORIGINS = "http://localhost:5173"
+```
+
+`ALLOWED_ORIGINS` accepts a comma-separated list. Its default is limited to the
+local Vite origins `http://localhost:5173` and `http://127.0.0.1:5173`.
+
 ### Quality checks
 
 ```powershell
@@ -75,6 +102,6 @@ Microscopy-TIFF-Explorer/
 
 Implementation is organized into ten roadmap steps. See
 [`docs/ROADMAP.md`](docs/ROADMAP.md). The frontend currently supports local TIFF
-selection and pre-upload validation. API upload, TIFF processing, and persistent
-storage are not included at this stage.
+selection, pre-upload validation, and temporary upload through the FastAPI
+backend. TIFF content parsing begins in Step 4 and is not included yet.
 

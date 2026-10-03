@@ -6,6 +6,7 @@ import {
   useState,
 } from 'react'
 
+import { type UploadTiffFunction, useTiffUpload } from '../hooks/useTiffUpload'
 import {
   clearTiffFileSelection,
   formatFileSize,
@@ -15,23 +16,25 @@ import {
 } from '../utils/tiffFile'
 
 interface TiffUploadProps {
-  onFileReady?: (file: File) => void
+  uploadFile?: UploadTiffFunction
 }
 
 const ACCEPTED_FILE_TYPES = '.tif,.tiff,image/tiff'
 const DROPZONE_INSTRUCTIONS_ID = 'tiff-dropzone-instructions'
 const VALIDATION_MESSAGE_ID = 'tiff-validation-message'
 
-export function TiffUpload({ onFileReady }: TiffUploadProps) {
+export function TiffUpload({ uploadFile }: TiffUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [selection, setSelection] = useState<TiffFileSelectionState>(
     clearTiffFileSelection,
   )
   const [isDragging, setIsDragging] = useState(false)
+  const upload = useTiffUpload(uploadFile)
 
   const chooseFile = () => inputRef.current?.click()
 
   const handleFile = (file: File) => {
+    upload.reset()
     setSelection(selectTiffFile(file))
     setIsDragging(false)
   }
@@ -78,6 +81,7 @@ export function TiffUpload({ onFileReady }: TiffUploadProps) {
   }
 
   const handleClear = () => {
+    upload.reset()
     setSelection(clearTiffFileSelection())
     setIsDragging(false)
 
@@ -86,9 +90,9 @@ export function TiffUpload({ onFileReady }: TiffUploadProps) {
     }
   }
 
-  const handleUpload = () => {
-    if (selection.file) {
-      onFileReady?.(selection.file)
+  const handleUpload = async () => {
+    if (selection.file && upload.state.status !== 'uploading') {
+      await upload.startUpload(selection.file)
     }
   }
 
@@ -100,12 +104,16 @@ export function TiffUpload({ onFileReady }: TiffUploadProps) {
     .join(' ')
 
   return (
-    <section className="upload-card" aria-labelledby="upload-title">
+    <section
+      className="upload-card"
+      aria-labelledby="upload-title"
+      aria-busy={upload.state.status === 'uploading'}
+    >
       <p className="card-label">Step 1 of 3</p>
       <h2 id="upload-title">Choose your TIFF</h2>
       <p className="upload-intro">
-        Select one microscopy image to begin. The file stays in your browser
-        until upload support is connected.
+        Select one microscopy image to begin. It will be sent to temporary,
+        server-controlled storage when you upload it.
       </p>
 
       <input
@@ -173,6 +181,26 @@ export function TiffUpload({ onFileReady }: TiffUploadProps) {
         </div>
       )}
 
+      {upload.state.status === 'uploading' && (
+        <p className="upload-status" role="status">
+          Uploading {selection.file?.name}…
+        </p>
+      )}
+
+      {upload.state.status === 'success' && (
+        <div className="upload-result upload-result--success" role="status">
+          <strong>Upload complete</strong>
+          <span>{upload.state.upload.filename}</span>
+          <code>{upload.state.upload.file_id}</code>
+        </div>
+      )}
+
+      {upload.state.status === 'error' && (
+        <p className="upload-result upload-result--error" role="alert">
+          {upload.state.message}
+        </p>
+      )}
+
       <div className="upload-actions">
         <button
           className="secondary-button"
@@ -185,15 +213,15 @@ export function TiffUpload({ onFileReady }: TiffUploadProps) {
         <button
           className="primary-button"
           type="button"
-          disabled={!selection.file}
+          disabled={!selection.file || upload.state.status === 'uploading'}
           onClick={handleUpload}
         >
-          Upload TIFF
+          {upload.state.status === 'uploading' ? 'Uploading…' : 'Upload TIFF'}
         </button>
       </div>
 
       <p className="upload-boundary-note">
-        Upload processing will be connected in the next development step.
+        Files are stored temporarily under an opaque server-generated ID.
       </p>
     </section>
   )
