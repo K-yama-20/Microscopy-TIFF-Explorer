@@ -1,0 +1,6 @@
+fastapi>=0.116,<1
+uvicorn[standard]>=0.35,<1
+tifffile>=2025.9.9,<2027
+numpy>=2.2,<3
+Pillow>=11.3,<13
+python-multipart>=0.0.20,<1
