@@ -51,6 +51,22 @@ export function TiffMetadataPanel({ upload }: TiffMetadataPanelProps) {
           <dt>Series count</dt>
           <dd>{metadata.series_count}</dd>
         </div>
+        <div>
+          <dt>RGB</dt>
+          <dd>{metadata.is_rgb ? 'Yes' : 'No'}</dd>
+        </div>
+        <div>
+          <dt>Sample count</dt>
+          <dd>{metadata.sample_count}</dd>
+        </div>
+        <div>
+          <dt>RGB components</dt>
+          <dd>
+            {metadata.rgb_components.length > 0
+              ? metadata.rgb_components.join(', ')
+              : 'None'}
+          </dd>
+        </div>
       </dl>
       <code className="file-id">File ID: {fileId}</code>
     </section>

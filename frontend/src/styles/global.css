@@ -233,7 +233,8 @@ a {
 .primary-button:focus-visible,
 .secondary-button:focus-visible,
 .clear-button:focus-visible,
-.dimension-control select:focus-visible {
+.dimension-control select:focus-visible,
+.color-component-selector select:focus-visible {
   outline: 3px solid #bdf4e6;
   outline-offset: 3px;
 }
@@ -498,6 +499,69 @@ a {
   background: #f4fbf8;
   border: 1px solid rgba(166, 229, 213, 0.72);
   border-radius: 10px;
+}
+
+.color-component-selector {
+  display: grid;
+  gap: 6px;
+  padding: 14px 0 0;
+  margin-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.color-component-selector label {
+  color: #acdacf;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.color-component-selector select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 34px 0 12px;
+  color: #16302c;
+  cursor: pointer;
+  background: #f4fbf8;
+  border: 1px solid rgba(166, 229, 213, 0.72);
+  border-radius: 10px;
+}
+
+.preview-panel {
+  padding-top: 14px;
+  margin-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.preview-panel h3 {
+  margin: 0 0 10px;
+  color: #f4fbf8;
+  font-size: 0.9rem;
+}
+
+.preview-status,
+.preview-error {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+.preview-status {
+  color: #c8e8df;
+}
+
+.preview-error {
+  color: #ffe9e7;
+}
+
+.preview-image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 420px;
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
 }
 
 .upload-result--error {

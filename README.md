@@ -7,7 +7,7 @@ The MVP will let users upload `.tif` or `.tiff` files up to 100 MB, inspect meta
 ## Stack
 
 - Frontend: React, TypeScript, Vite
-- Backend: Python, FastAPI, tifffile, NumPy, Pillow
+- Backend: Python, FastAPI, tifffile, imagecodecs, NumPy, Pillow
 - Storage: temporary files only; no database or persistent uploads
 - Deployment: Vercel for the frontend and a Python-compatible service for the backend
 
@@ -60,7 +60,10 @@ and normalized metadata from the primary TIFF series:
     "time_points": 2,
     "z_slices": 10,
     "channels": 3,
-    "series_count": 1
+    "series_count": 1,
+    "is_rgb": false,
+    "sample_count": 1,
+    "rgb_components": []
   }
 }
 ```
@@ -72,6 +75,27 @@ data types or ambiguous axes return structured errors and are removed. When
 `TEMP_STORAGE_DIR` is unset, files are written beneath the operating system's
 temporary directory in `microscopy-tiff-explorer/`. Upload metadata is kept in
 memory for later processing steps; no database or permanent storage is used.
+Common TIFF compression schemes supported by `imagecodecs`, including LZW, are
+decoded when a preview reads the selected image plane.
+
+After upload, the frontend requests the selected plane from:
+
+```http
+GET /api/tiff/{file_id}/preview?t=0&z=0&c=0&component=composite
+```
+
+The preview response is an uncached `image/png`. It refreshes when the Time,
+Z, microscopy Channel, or RGB Color component selection changes. Supported
+Color component values are `composite`, `red`, `green`, and `blue`; composite
+is the default and the individual components are returned as grayscale.
+
+Metadata-confirmed RGB TIFFs support both interleaved `YXS` and planar `SYX`
+layouts, plus compatible T/Z/C combinations. The `C` axis is a microscopy
+Channel and remains independently selectable, while `S` contains the three
+grouped Red/Green/Blue samples and is never added to the Channel count. RGB
+recognition requires RGB photometric metadata, `SamplesPerPixel=3`, and a
+three-element `S` axis. RGBA, non-RGB `S` axes, and other sample models are not
+supported in MVP v1.
 
 Backend runtime settings are supplied as environment variables:
 
@@ -118,7 +142,9 @@ Implementation is organized into ten roadmap steps. See
 [`docs/ROADMAP.md`](docs/ROADMAP.md). The frontend currently supports local TIFF
 selection, pre-upload validation, temporary upload through the FastAPI backend,
 display of normalized primary-series TIFF metadata, and zero-based T/Z/C
-selection for axes present in the uploaded image. The backend currently supports
-`uint8` and `uint16` data with unambiguous combinations of the T, Z, C, Y, and X
-axes, including `YX`, `ZYX`, `CYX`, `ZCYX`, and `TZCYX`.
+selection for axes present in the uploaded image. It now displays live PNG
+previews and a separate RGB Color component selector when applicable. The
+backend currently supports `uint8` and `uint16` data with unambiguous
+combinations of the T, Z, C, Y, X, and metadata-confirmed RGB S axes, including
+`YX`, `ZYX`, `CYX`, `ZCYX`, `TZCYX`, `YXS`, and `SYX`.
 

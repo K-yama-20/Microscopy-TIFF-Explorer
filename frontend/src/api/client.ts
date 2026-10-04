@@ -1,5 +1,7 @@
 import type {
   ApiErrorResponse,
+  PreviewSelection,
+  RgbComponentName,
   TiffMetadata,
   UploadTiffResponse,
 } from '../types/api'
@@ -57,6 +59,7 @@ function isTiffMetadata(value: unknown): value is TiffMetadata {
     typeof candidate === 'number' &&
     Number.isInteger(candidate) &&
     candidate > 0
+  const rgbComponentNames: RgbComponentName[] = ['red', 'green', 'blue']
 
   return (
     'shape' in value &&
@@ -79,7 +82,20 @@ function isTiffMetadata(value: unknown): value is TiffMetadata {
     'channels' in value &&
     isPositiveInteger(value.channels) &&
     'series_count' in value &&
-    isPositiveInteger(value.series_count)
+    isPositiveInteger(value.series_count) &&
+    'is_rgb' in value &&
+    typeof value.is_rgb === 'boolean' &&
+    'sample_count' in value &&
+    isPositiveInteger(value.sample_count) &&
+    'rgb_components' in value &&
+    Array.isArray(value.rgb_components) &&
+    (value.is_rgb
+      ? value.sample_count === 3 &&
+        value.rgb_components.length === 3 &&
+        value.rgb_components.every(
+          (component, index) => component === rgbComponentNames[index],
+        )
+      : value.sample_count === 1 && value.rgb_components.length === 0)
   )
 }
 
@@ -136,4 +152,55 @@ export async function uploadTiff(
   }
 
   return payload
+}
+
+export async function fetchTiffPreview(
+  fileId: string,
+  selection: PreviewSelection,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const query = new URLSearchParams({
+    t: String(selection.t),
+    z: String(selection.z),
+    c: String(selection.c),
+    component: selection.component ?? 'composite',
+  })
+
+  let response: Response
+  try {
+    response = await fetch(
+      `${API_BASE_URL}/api/tiff/${encodeURIComponent(fileId)}/preview?${query}`,
+      { signal },
+    )
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error
+    }
+
+    throw new ApiClientError(
+      'NETWORK_ERROR',
+      'Could not reach the preview service. Please try again.',
+    )
+  }
+
+  if (!response.ok) {
+    const payload = await readJson(response)
+    if (isApiErrorResponse(payload)) {
+      throw new ApiClientError(payload.error.code, payload.error.message)
+    }
+
+    throw new ApiClientError(
+      'PROCESSING_ERROR',
+      'The image preview could not be generated. Please try again.',
+    )
+  }
+
+  if (!response.headers.get('Content-Type')?.startsWith('image/png')) {
+    throw new ApiClientError(
+      'INVALID_RESPONSE',
+      'The preview service returned an unexpected response. Please try again.',
+    )
+  }
+
+  return response.blob()
 }
