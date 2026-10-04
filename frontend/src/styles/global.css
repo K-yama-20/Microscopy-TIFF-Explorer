@@ -417,6 +417,39 @@ a {
   font-size: 0.75rem;
 }
 
+.tiff-metadata {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  padding: 12px 0;
+  margin: 0;
+}
+
+.tiff-metadata div {
+  min-width: 0;
+}
+
+.tiff-metadata dt {
+  color: #acdacf;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.tiff-metadata dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  color: #f4fbf8;
+  font-weight: 650;
+}
+
+.file-id {
+  display: block;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
 .upload-result--error {
   color: #ffe9e7;
   background: rgba(178, 65, 54, 0.24);
@@ -577,6 +610,10 @@ a {
   }
 
   .upload-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .tiff-metadata {
     grid-template-columns: 1fr;
   }
 

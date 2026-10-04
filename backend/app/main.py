@@ -5,8 +5,9 @@ from fastapi.responses import JSONResponse
 
 from app.api.upload import router as upload_router
 from app.core.config import Settings
+from app.models.errors import ApiServiceError
 from app.models.health import HealthResponse
-from app.services.temporary_files import TemporaryFileManager, UploadServiceError
+from app.services.temporary_files import TemporaryFileManager
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -30,9 +31,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["Content-Type"],
     )
 
-    @application.exception_handler(UploadServiceError)
+    @application.exception_handler(ApiServiceError)
     async def handle_upload_error(
-        _request: Request, error: UploadServiceError
+        _request: Request, error: ApiServiceError
     ) -> JSONResponse:
         return JSONResponse(
             status_code=error.status_code,
