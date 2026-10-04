@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClientError } from '../api/client'
 import type { UploadTiffFunction } from '../hooks/useTiffUpload'
-import type { UploadTiffResponse } from '../types/api'
+import type { TiffMetadata, UploadTiffResponse } from '../types/api'
 import { TiffUpload } from './TiffUpload'
 
 const testEnvironment = globalThis as typeof globalThis & {
@@ -46,7 +46,10 @@ function findButton(container: HTMLElement, label: string) {
   )
 }
 
-function successfulUpload(filename = 'sample.tif'): UploadTiffResponse {
+function successfulUpload(
+  filename = 'sample.tif',
+  metadataOverrides: Partial<TiffMetadata> = {},
+): UploadTiffResponse {
   return {
     file_id: '95ed59ce-198b-4f17-89da-74e17d457df3',
     filename,
@@ -60,6 +63,7 @@ function successfulUpload(filename = 'sample.tif'): UploadTiffResponse {
       z_slices: 3,
       channels: 4,
       series_count: 1,
+      ...metadataOverrides,
     },
   }
 }
@@ -69,6 +73,36 @@ function getMetadataValue(container: HTMLElement, label: string) {
     (candidate) => candidate.textContent === label,
   )
   return term?.nextElementSibling?.textContent
+}
+
+function getSelectByLabel(
+  container: HTMLElement,
+  label: string,
+): HTMLSelectElement | null {
+  const labelElement = Array.from(container.querySelectorAll('label')).find(
+    (candidate) => candidate.textContent === label,
+  )
+
+  if (!labelElement?.htmlFor) {
+    return null
+  }
+
+  return container.querySelector<HTMLSelectElement>(`#${labelElement.htmlFor}`)
+}
+
+function changeSelect(select: HTMLSelectElement, value: number) {
+  select.value = String(value)
+  select.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+async function selectAndUpload(
+  container: HTMLElement,
+  filename = 'selected.tif',
+) {
+  act(() =>
+    dispatchDragEvent(getDropzone(container), 'drop', [createFile(filename)]),
+  )
+  await act(async () => findButton(container, 'Upload TIFF')?.click())
 }
 
 describe('TiffUpload', () => {
@@ -195,6 +229,167 @@ describe('TiffUpload', () => {
     expect(getMetadataValue(container, 'Series count')).toBe('1')
   })
 
+  it('does not show dimension selectors for YX metadata', async () => {
+    const uploadFile: UploadTiffFunction = vi.fn().mockResolvedValue(
+      successfulUpload('yx.tif', {
+        shape: [5, 7],
+        axes: 'YX',
+        time_points: 1,
+        z_slices: 1,
+        channels: 1,
+      }),
+    )
+    act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
+
+    await selectAndUpload(container)
+
+    expect(getSelectByLabel(container, 'Time')).toBeNull()
+    expect(getSelectByLabel(container, 'Z')).toBeNull()
+    expect(getSelectByLabel(container, 'Channel')).toBeNull()
+    expect(container.querySelector('.dimension-selectors')).toBeNull()
+  })
+
+  it('shows only the zero-based Z selector for ZYX metadata', async () => {
+    const uploadFile: UploadTiffFunction = vi.fn().mockResolvedValue(
+      successfulUpload('zyx.tif', {
+        shape: [3, 5, 7],
+        axes: 'ZYX',
+        time_points: 1,
+        z_slices: 3,
+        channels: 1,
+      }),
+    )
+    act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
+
+    await selectAndUpload(container)
+
+    const zSelect = getSelectByLabel(container, 'Z')
+    expect(zSelect).not.toBeNull()
+    expect(
+      Array.from(zSelect?.options ?? [], (option) => option.value),
+    ).toEqual(['0', '1', '2'])
+    expect(getSelectByLabel(container, 'Time')).toBeNull()
+    expect(getSelectByLabel(container, 'Channel')).toBeNull()
+  })
+
+  it('shows the Channel selector for CYX metadata even when its count is one', async () => {
+    const uploadFile: UploadTiffFunction = vi.fn().mockResolvedValue(
+      successfulUpload('cyx.tif', {
+        shape: [1, 5, 7],
+        axes: 'CYX',
+        time_points: 1,
+        z_slices: 1,
+        channels: 1,
+      }),
+    )
+    act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
+
+    await selectAndUpload(container)
+
+    const channelSelect = getSelectByLabel(container, 'Channel')
+    expect(channelSelect).not.toBeNull()
+    expect(channelSelect?.options).toHaveLength(1)
+    expect(channelSelect?.value).toBe('0')
+    expect(getSelectByLabel(container, 'Time')).toBeNull()
+    expect(getSelectByLabel(container, 'Z')).toBeNull()
+  })
+
+  it('shows Z and Channel but not Time for ZCYX metadata', async () => {
+    const uploadFile: UploadTiffFunction = vi.fn().mockResolvedValue(
+      successfulUpload('zcyx.tif', {
+        shape: [3, 4, 5, 7],
+        axes: 'ZCYX',
+        time_points: 1,
+        z_slices: 3,
+        channels: 4,
+      }),
+    )
+    act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
+
+    await selectAndUpload(container)
+
+    expect(getSelectByLabel(container, 'Time')).toBeNull()
+    expect(getSelectByLabel(container, 'Z')).not.toBeNull()
+    expect(getSelectByLabel(container, 'Channel')).not.toBeNull()
+  })
+
+  it('shows all selectors at index zero for TZCYX metadata', async () => {
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
+
+    await selectAndUpload(container)
+
+    expect(getSelectByLabel(container, 'Time')?.value).toBe('0')
+    expect(getSelectByLabel(container, 'Z')?.value).toBe('0')
+    expect(getSelectByLabel(container, 'Channel')?.value).toBe('0')
+  })
+
+  it('updates each selected index and keeps option counts in range', async () => {
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
+
+    await selectAndUpload(container)
+
+    const timeSelect = getSelectByLabel(container, 'Time')
+    const zSelect = getSelectByLabel(container, 'Z')
+    const channelSelect = getSelectByLabel(container, 'Channel')
+
+    expect(timeSelect?.options).toHaveLength(2)
+    expect(zSelect?.options).toHaveLength(3)
+    expect(channelSelect?.options).toHaveLength(4)
+
+    act(() => {
+      changeSelect(timeSelect!, 1)
+      changeSelect(zSelect!, 2)
+      changeSelect(channelSelect!, 3)
+    })
+
+    expect(timeSelect?.value).toBe('1')
+    expect(zSelect?.value).toBe('2')
+    expect(channelSelect?.value).toBe('3')
+  })
+
+  it('resets selections and removes absent selectors for a newly uploaded file', async () => {
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValueOnce(successfulUpload('first.tif'))
+      .mockResolvedValueOnce(
+        successfulUpload('second.tif', {
+          shape: [2, 5, 7],
+          axes: 'ZYX',
+          time_points: 1,
+          z_slices: 2,
+          channels: 1,
+        }),
+      )
+    act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
+    await selectAndUpload(container, 'first.tif')
+
+    act(() => {
+      changeSelect(getSelectByLabel(container, 'Time')!, 1)
+      changeSelect(getSelectByLabel(container, 'Z')!, 2)
+      changeSelect(getSelectByLabel(container, 'Channel')!, 3)
+    })
+
+    act(() =>
+      dispatchDragEvent(getDropzone(container), 'drop', [
+        createFile('second.tif'),
+      ]),
+    )
+    expect(container.querySelector('.dimension-selectors')).toBeNull()
+
+    await act(async () => findButton(container, 'Upload TIFF')?.click())
+
+    expect(getSelectByLabel(container, 'Time')).toBeNull()
+    expect(getSelectByLabel(container, 'Channel')).toBeNull()
+    expect(getSelectByLabel(container, 'Z')?.value).toBe('0')
+    expect(getSelectByLabel(container, 'Z')?.options).toHaveLength(2)
+  })
+
   it('shows a user-facing API error', async () => {
     const uploadFile: UploadTiffFunction = vi
       .fn()
@@ -236,6 +431,32 @@ describe('TiffUpload', () => {
     expect(container.textContent).not.toContain('Upload complete')
     expect(container.textContent).not.toContain('selected.tif')
     expect(container.querySelector('.tiff-metadata')).toBeNull()
+    expect(container.querySelector('.dimension-selectors')).toBeNull()
+
+    await selectAndUpload(container, 'after-reset.tif')
+    expect(getSelectByLabel(container, 'Time')?.value).toBe('0')
+    expect(getSelectByLabel(container, 'Z')?.value).toBe('0')
+    expect(getSelectByLabel(container, 'Channel')?.value).toBe('0')
+  })
+
+  it('clears metadata and selectors when Clear is pressed', async () => {
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
+    await selectAndUpload(container)
+
+    act(() => changeSelect(getSelectByLabel(container, 'Z')!, 2))
+    act(() => findButton(container, 'Clear')?.click())
+
+    expect(container.querySelector('.tiff-metadata')).toBeNull()
+    expect(container.querySelector('.dimension-selectors')).toBeNull()
+    expect(container.textContent).not.toContain('Upload complete')
+
+    await selectAndUpload(container, 'after-clear.tif')
+    expect(getSelectByLabel(container, 'Time')?.value).toBe('0')
+    expect(getSelectByLabel(container, 'Z')?.value).toBe('0')
+    expect(getSelectByLabel(container, 'Channel')?.value).toBe('0')
   })
 
   it('clears previous metadata when a replacement file is selected', async () => {

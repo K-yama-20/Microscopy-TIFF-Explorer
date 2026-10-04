@@ -17,7 +17,7 @@ The architecture prioritizes simplicity, fast MVP delivery, clear frontend/backe
 │ User Browser                    │
 │ React + TypeScript + Vite       │
 │                                 │
-│ Upload • Metadata • T/Z/C       │
+│ Upload • Metadata • T/Z/C/RGB   │
 │ Preview • PNG • ZIP             │
 └────────────────┬────────────────┘
                  │ HTTPS / REST
@@ -77,6 +77,7 @@ The frontend owns:
 - Upload and processing states
 - Metadata presentation
 - T/Z/C selector state
+- RGB Color component state for metadata-confirmed RGB TIFFs
 - Preview refreshes
 - PNG and ZIP download initiation
 - User-friendly error display
@@ -127,7 +128,7 @@ Select TIFF
   → UUID temporary storage
   → tifffile metadata parse
   → metadata response
-  → choose T/Z/C
+  → choose T/Z/C and optional RGB Color component
   → request plane
   → extract + normalize + PNG encode
   → browser preview or download
@@ -157,7 +158,10 @@ Example response:
     "time_points": 5,
     "z_slices": 20,
     "channels": 3,
-    "series_count": 1
+    "series_count": 1,
+    "is_rgb": false,
+    "sample_count": 1,
+    "rgb_components": []
   }
 }
 ```
@@ -178,45 +182,48 @@ level. Its nested `metadata` object includes:
 - `dtype`
 - `width`, `height`
 - `time_points`, `z_slices`, `channels`
+- `is_rgb`, `sample_count`, `rgb_components`
 - optionally, series count and selected non-sensitive OME fields
+
+Existing fields remain stable. `channels` always describes the microscopy `C` axis and never counts RGB samples. A metadata-confirmed RGB series reports `is_rgb: true`, `sample_count: 3`, and `rgb_components: ["red", "green", "blue"]` while preserving its original `S` axis in `axes`.
 
 ## 13. Semantic Plane Extraction
 
 Plane selection should be axis-aware rather than position-assumed:
 
 ```python
-extract_plane(array, axes, t=0, z=0, c=0)
+extract_plane(array, axes, t=0, z=0, c=0, component="composite")
 ```
 
-The service validates indices, maps each semantic selector to the correct array dimension, preserves Y/X, and handles RGB sample axes separately from microscopy channels.
+The service validates indices, maps each semantic selector to the correct array dimension, and preserves Y/X. `component` accepts `composite`, `red`, `green`, or `blue`. For an RGB series, `composite` preserves the grouped `S` axis and an individual component removes `S` to return a grayscale Y/X plane. For a non-RGB series, values other than `composite` are rejected. The RGB `S` axis remains separate from microscopy channels, including when both `C` and `S` are present.
 
 ## 14. Preview API
 
 ```http
-GET /api/tiff/{file_id}/preview?t=0&z=0&c=0
+GET /api/tiff/{file_id}/preview?t=0&z=0&c=0&component=composite
 ```
 
-The response is `image/png`. The endpoint extracts the selected plane, normalizes it when necessary, encodes it in memory, and returns cache-safe headers appropriate for temporary research data.
+The response is `image/png`. Omitting `component` is backward-compatible and means `composite`. RGB composite responses are color PNGs; `red`, `green`, and `blue` responses are grayscale PNGs. The endpoint extracts the selected plane, normalizes it when necessary, encodes it in memory, and returns cache-safe headers appropriate for temporary research data.
 
 ## 15. Normalization
 
-`uint8` values are preserved. `uint16` values use a shared `normalize_to_uint8` service with 1st/99th percentile clipping and explicit handling for a constant image (`upper == lower`). Preview and export must call the same normalization function.
+`uint8` values are preserved. `uint16` values use a shared `normalize_to_uint8` service with 1st/99th percentile clipping and explicit handling for a constant image (`upper == lower`). A composite RGB image uses one shared pair of bounds across all three samples to preserve relative color balance; an isolated component uses bounds from that component. Preview and export must call the same normalization function for the same selection.
 
 ## 16. PNG Export API
 
 ```http
-GET /api/tiff/{file_id}/export/png?t=0&z=0&c=0
+GET /api/tiff/{file_id}/export/png?t=0&z=0&c=0&component=composite
 ```
 
-The response uses `image/png` plus a download-oriented `Content-Disposition`. Filenames contain sanitized source information and zero-padded semantic indices.
+The response uses `image/png` plus a download-oriented `Content-Disposition`. Filenames contain sanitized source information and zero-padded semantic indices. RGB filenames add `_RGB`, `_R`, `_G`, or `_B` so composite and separated exports cannot collide.
 
 ## 17. ZIP Export API
 
 ```http
-GET /api/tiff/{file_id}/export/zip
+GET /api/tiff/{file_id}/export/zip?component=composite
 ```
 
-The MVP may export all available T/Z/C planes. PNGs use deterministic names and the ZIP is generated temporarily or streamed. Generated archives are not retained permanently.
+The MVP may export all available T/Z/C planes for the requested Color component. Omitting `component` exports RGB composites and preserves existing behavior. Selecting `red`, `green`, or `blue` exports that grayscale component across the stack. PNGs use deterministic component-aware names and the ZIP is generated temporarily or streamed. Generated archives are not retained permanently.
 
 ## 18. Temporary Storage
 
@@ -251,7 +258,7 @@ Errors should be stable and machine-readable:
 }
 ```
 
-Required codes include `INVALID_FILE_TYPE`, `FILE_TOO_LARGE`, `INVALID_TIFF`, `UNSUPPORTED_DTYPE`, `UNSUPPORTED_AXES`, `FILE_NOT_FOUND`, `INVALID_DIMENSION_INDEX`, and `PROCESSING_ERROR`.
+Required codes include `INVALID_FILE_TYPE`, `FILE_TOO_LARGE`, `INVALID_TIFF`, `UNSUPPORTED_DTYPE`, `UNSUPPORTED_AXES`, `FILE_NOT_FOUND`, `INVALID_DIMENSION_INDEX`, `INVALID_RGB_COMPONENT`, and `PROCESSING_ERROR`.
 
 Responses must not expose stack traces or server paths.
 
@@ -292,13 +299,14 @@ The 100 MB upload cap is a product and operational safeguard. Prefer lazy TIFF a
 Backend unit tests should cover:
 
 - Axis interpretation and plane extraction
+- RGB detection and composite / Red / Green / Blue extraction without conflating `S` and `C`
 - `uint8` pass-through
 - `uint16` normalization, including constant data
 - Upload validation and structured errors
 - Safe filename and storage behavior
 - Cleanup expiration
 
-API tests should cover upload, metadata, preview, PNG, ZIP, invalid indices, and missing file IDs. Frontend tests should cover file validation, conditional selectors, selection reset, loading/error states, and download actions.
+API tests should cover upload, metadata, preview, PNG, ZIP, invalid indices/components, RGB composite and separated components, and missing file IDs. Frontend tests should cover file validation, conditional T/Z/C and RGB component selectors, selection reset, loading/error states, and download actions.
 
 ## 26. Local Development
 
