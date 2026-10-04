@@ -2,7 +2,7 @@
 
 ## Goal
 
-Complete an MVP that lets a user upload a supported TIFF, inspect metadata, select T/Z/C dimensions, preview the selected plane, export PNG and ZIP files, and use the application through a public URL.
+Complete an MVP that lets a user upload a supported TIFF, inspect metadata, select T/Z/C dimensions and RGB Color components when applicable, preview the selected plane, export PNG and ZIP files, and use the application through a public URL.
 
 ## Step 1 — Project Foundation
 
@@ -134,18 +134,25 @@ Extract the selected plane and show it in the browser.
 ### Main Tasks
 
 - Implement semantic, axis-aware plane extraction.
-- Implement `GET /api/tiff/{file_id}/preview?t=&z=&c=`.
+- Extend metadata parsing to accept metadata-confirmed RGB `S` axes without treating them as microscopy Channels.
+- Add backward-compatible `is_rgb`, `sample_count`, and `rgb_components` metadata fields while retaining every existing upload response field.
+- Implement `GET /api/tiff/{file_id}/preview?t=&z=&c=&component=` with `component=composite` as the default.
 - Return `image/png`.
 - Request a preview after upload and whenever T/Z/C changes.
+- Add a separate Color component selector for RGB composite / Red / Green / Blue and refresh the preview when it changes.
 - Add loading and processing-error states.
-- Keep RGB samples grouped when TIFF metadata clearly indicates RGB.
+- Keep RGB samples grouped for composite output and return individual components as grayscale without conflating `S` and `C`.
 
 ### Acceptance Criteria
 
 - The selected plane is extracted correctly.
 - Changing T/Z/C changes the preview.
-- Basic RGB TIFF preview does not break.
+- Existing non-RGB YX/ZYX/CYX/ZCYX/TZCYX behavior remains unchanged.
+- Metadata-confirmed RGB TIFFs such as YXS upload successfully and default to a color composite preview.
+- Red, Green, and Blue selections return the matching grayscale component.
+- TIFFs containing both C and S keep Channel and Color component selections independent.
 - Invalid indices return clear errors.
+- Invalid RGB component selections return a structured error.
 
 ## Step 7 — 8-bit / 16-bit Normalization
 
@@ -158,13 +165,15 @@ Make preview reliable for both 8-bit and 16-bit microscopy images.
 - Create an isolated `normalize_to_uint8(image)` utility.
 - Preserve `uint8` values.
 - Normalize `uint16` using 1st/99th percentile clipping and conversion to `uint8`.
+- Use shared bounds across a composite RGB array and component-specific bounds for an isolated R/G/B plane.
 - Handle `upper == lower` without division by zero.
-- Test normal `uint8`, normal `uint16`, constant `uint16`, and high-dynamic-range `uint16` data.
+- Test grayscale and RGB `uint8`, normal `uint16`, constant `uint16`, high-dynamic-range `uint16`, and isolated component data.
 
 ### Acceptance Criteria
 
 - 8-bit TIFF previews correctly.
 - 16-bit TIFF previews correctly.
+- Composite and separated RGB output preserve the documented normalization behavior.
 - Constant images do not crash.
 - Normalization logic is isolated and unit-tested.
 
@@ -176,16 +185,17 @@ Allow users to download the current image plane as PNG.
 
 ### Main Tasks
 
-- Implement `GET /api/tiff/{file_id}/export/png?t=&z=&c=`.
+- Implement `GET /api/tiff/{file_id}/export/png?t=&z=&c=&component=` while keeping `component` optional and defaulting to composite.
 - Extract the selected plane and use the same normalization as preview.
 - Return a PNG with download-friendly headers.
-- Use a filename such as `sample_T000_Z012_C002.png`.
+- Use filenames such as `sample_T000_Z012_C002.png`, `sample_T000_Z012_C002_RGB.png`, and `sample_T000_Z012_C002_R.png`.
 - Add a “Download PNG” button without changing current selection.
 
 ### Acceptance Criteria
 
 - The current preview plane downloads as PNG.
 - The filename contains useful T/Z/C information.
+- RGB composite and separated component filenames are distinguishable and do not collide.
 - `uint8` and `uint16` sources both export successfully.
 
 ## Step 9 — ZIP Batch Export
@@ -196,8 +206,9 @@ Allow multiple image planes to be exported together.
 
 ### Main Tasks
 
-- Implement `GET /api/tiff/{file_id}/export/zip`.
+- Implement `GET /api/tiff/{file_id}/export/zip?component=` with composite as the backward-compatible default.
 - For MVP, export all planes across available T/Z/C dimensions.
+- For RGB TIFFs, export the currently selected composite or R/G/B component across all T/Z/C positions without changing Channel semantics.
 - Generate deterministically named PNG files with Python `zipfile`.
 - Add an “Export Stack as ZIP” button and processing state.
 - Avoid permanent ZIP storage.
@@ -207,6 +218,7 @@ Allow multiple image planes to be exported together.
 - A multi-plane TIFF produces a ZIP.
 - The ZIP contains correctly named PNG files.
 - The download works through the browser.
+- RGB component suffixes prevent collisions, and omitted component selection exports composite images.
 - Generated data remains temporary.
 
 ## Step 10 — Error Handling, Cleanup, UI Polish, and Deployment
@@ -229,8 +241,9 @@ Turn the prototype into a usable public MVP.
 
 ### Acceptance Criteria
 
-- The public application supports the complete upload → metadata → T/Z/C → preview → PNG/ZIP workflow.
+- The public application supports the complete upload → metadata → T/Z/C and optional RGB component → preview → PNG/ZIP workflow.
 - 8-bit and 16-bit TIFFs work.
+- RGB composite and Red / Green / Blue component workflows work end to end without treating samples as microscopy Channels.
 - Errors are understandable and do not expose internals.
 - Uploaded TIFFs and generated artifacts expire rather than being retained permanently.
 - Production frontend/backend communication and CORS work.

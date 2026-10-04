@@ -73,11 +73,14 @@ The application should support these axis structures when detected:
 
 Other compatible axis combinations may be supported if they can be safely normalized internally.
 
+When TIFF metadata clearly identifies RGB samples, the application should also support `YXS` and compatible T/Z/C combinations such as `ZYXS`, `CYXS`, `ZCYXS`, and `TZCYXS`. The `S` axis represents grouped color samples and must remain semantically distinct from the microscopy Channel axis `C`.
+
 - `T`: Time point
 - `Z`: Z-stack position
 - `C`: Channel
 - `Y`: Image height
 - `X`: Image width
+- `S`: RGB sample component
 
 The backend should rely on TIFF metadata whenever possible instead of guessing axis meaning solely from array shape.
 
@@ -97,6 +100,8 @@ After upload, the backend must inspect the TIFF and return at least:
 - Number of Channels
 - Number of Z slices
 - Number of Time points
+- Whether the primary series is RGB
+- Number and names of RGB samples when present
 
 Example:
 
@@ -110,7 +115,10 @@ Example:
   "height": 1024,
   "time_points": 5,
   "z_slices": 20,
-  "channels": 3
+  "channels": 3,
+  "is_rgb": false,
+  "sample_count": 1,
+  "rgb_components": []
 }
 ```
 
@@ -122,9 +130,11 @@ The frontend must display the required TIFF information after successful analysi
 
 Show a Time, Z, or Channel selector only when the corresponding axis exists. The selector may use a dropdown, number input, or slider. Selection must remain in range and should default to index 0.
 
+For a metadata-confirmed RGB TIFF, show a separate Color component selector with `RGB composite`, `Red`, `Green`, and `Blue`. It defaults to `RGB composite` and resets to that value when a new file is selected, uploaded, reset, or cleared. This selector must not be represented as the microscopy Channel selector. When both `C` and `S` exist, Channel and Color component remain independently selectable.
+
 ## 11. Image Preview
 
-The selected image plane must be displayed in the browser and refreshed when Time, Z, or Channel changes. Browser preview does not need to preserve the original bit depth; reliable visualization takes priority.
+The selected image plane must be displayed in the browser and refreshed when Time, Z, Channel, or RGB Color component changes. `RGB composite` returns a color image with grouped samples. `Red`, `Green`, and `Blue` return the selected component as a grayscale intensity image. Browser preview does not need to preserve the original bit depth; reliable visualization takes priority.
 
 ## 12. 8-bit Image Handling
 
@@ -143,6 +153,8 @@ image_8bit = (image_clipped - lower) / (upper - lower) * 255
 
 Clip the result to `0–255` and convert to `uint8`. If `upper == lower`, avoid division by zero and return a valid uniform image.
 
+For a 16-bit RGB composite, calculate one shared lower and upper bound across the grouped RGB samples so their relative color balance is not independently rescaled. For an isolated Red, Green, or Blue component, calculate bounds from that selected component. Preview and export of the same selection must use identical normalization.
+
 ## 14. PNG Export
 
 The user must be able to export the current plane as an 8-bit PNG. A 16-bit source must use the same normalization as preview. Filenames should retain useful source and dimension information, for example:
@@ -151,13 +163,17 @@ The user must be able to export the current plane as an 8-bit PNG. A 16-bit sour
 sample_T000_Z012_C002.png
 ```
 
+For RGB TIFFs, filenames must distinguish the composite and isolated components, for example `sample_T000_Z012_C002_RGB.png` and `sample_T000_Z012_C002_R.png`.
+
 ## 15. ZIP Export
 
-The user must be able to export multiple image planes as a ZIP archive. A simple “Export Stack as ZIP” operation is acceptable for MVP v1. Each PNG in the archive should have a deterministic T/Z/C filename.
+The user must be able to export multiple image planes as a ZIP archive. A simple “Export Stack as ZIP” operation is acceptable for MVP v1. Each PNG in the archive should have a deterministic T/Z/C filename. For an RGB TIFF, the archive exports all T/Z/C planes for the currently selected Color component; `RGB composite` remains the default. Component suffixes must prevent filename collisions.
 
 ## 16. RGB TIFF Handling
 
-The backend must not blindly treat every three-element dimension as a microscopy Channel axis. When metadata clearly indicates RGB, keep RGB samples grouped for normal preview when possible. Explicit RGB channel separation is outside MVP v1.
+The backend must not blindly treat every three-element dimension as a microscopy Channel axis. RGB handling is enabled only when TIFF metadata identifies RGB photometric data and a compatible `S` axis with three samples.
+
+RGB samples remain grouped for the default `RGB composite` preview and export. The user may explicitly select Red, Green, or Blue; the backend then extracts that sample as a two-dimensional grayscale intensity plane. The `S` axis is never exposed as or counted toward microscopy Channels. TIFFs containing both `C` and `S` keep the axes independent. Alpha and non-RGB sample models are outside MVP v1 unless separately specified.
 
 ## 17. Error Handling
 
@@ -169,6 +185,7 @@ Display understandable errors rather than raw exceptions or stack traces. Requir
 - Invalid or ambiguous TIFF structure
 - Missing temporary file
 - Invalid dimension index
+- Invalid RGB component selection
 - Unexpected processing error
 
 Detailed internal errors may be logged, but must not be exposed to users.
@@ -189,7 +206,7 @@ A database and Supabase are not required for MVP v1. User accounts, uploaded ima
 
 Frontend technology: React and TypeScript.
 
-The frontend should provide TIFF drag-and-drop or file selection, upload status, metadata, T/Z/C selectors, image preview, PNG download, ZIP export, and clear error messages. Modern desktop browsers are the priority.
+The frontend should provide TIFF drag-and-drop or file selection, upload status, metadata, T/Z/C selectors, an RGB Color component selector when applicable, image preview, PNG download, ZIP export, and clear error messages. Modern desktop browsers are the priority.
 
 ## 22. Backend Requirements
 
@@ -243,13 +260,14 @@ MVP v1 is complete when a user can:
 2. Upload a supported TIFF smaller than 100 MB.
 3. View dimensions and basic metadata.
 4. Select available Time / Z / Channel positions.
-5. Preview the selected plane.
-6. Correctly preview 8-bit and 16-bit images.
-7. Download the selected plane as an 8-bit PNG.
-8. Export multiple planes as ZIP.
-9. Receive understandable errors for unsupported or invalid files.
-10. Use the application without logging in.
-11. Trust that uploads are not intentionally stored permanently.
+5. Select RGB composite or an individual Red / Green / Blue component when the TIFF is RGB.
+6. Preview the selected plane.
+7. Correctly preview 8-bit and 16-bit images.
+8. Download the selected plane as an 8-bit PNG.
+9. Export multiple planes as ZIP.
+10. Receive understandable errors for unsupported or invalid files.
+11. Use the application without logging in.
+12. Trust that uploads are not intentionally stored permanently.
 
 ## 30. Product Principle
 
