@@ -117,7 +117,8 @@ Microscopy-TIFF-Explorer/
 Implementation is organized into ten roadmap steps. See
 [`docs/ROADMAP.md`](docs/ROADMAP.md). The frontend currently supports local TIFF
 selection, pre-upload validation, temporary upload through the FastAPI backend,
-and display of normalized primary-series TIFF metadata. The backend currently
-supports `uint8` and `uint16` data with unambiguous combinations of the T, Z, C,
-Y, and X axes, including `YX`, `ZYX`, `CYX`, `ZCYX`, and `TZCYX`.
+display of normalized primary-series TIFF metadata, and zero-based T/Z/C
+selection for axes present in the uploaded image. The backend currently supports
+`uint8` and `uint16` data with unambiguous combinations of the T, Z, C, Y, and X
+axes, including `YX`, `ZYX`, `CYX`, `ZCYX`, and `TZCYX`.
 

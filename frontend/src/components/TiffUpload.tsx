@@ -14,6 +14,8 @@ import {
   selectTiffFile,
   type TiffFileSelectionState,
 } from '../utils/tiffFile'
+import { TiffDimensionSelectors } from './TiffDimensionSelectors'
+import { TiffMetadataPanel } from './TiffMetadataPanel'
 
 interface TiffUploadProps {
   uploadFile?: UploadTiffFunction
@@ -29,12 +31,22 @@ export function TiffUpload({ uploadFile }: TiffUploadProps) {
     clearTiffFileSelection,
   )
   const [isDragging, setIsDragging] = useState(false)
+  const [selectedT, setSelectedT] = useState(0)
+  const [selectedZ, setSelectedZ] = useState(0)
+  const [selectedC, setSelectedC] = useState(0)
   const upload = useTiffUpload(uploadFile)
 
   const chooseFile = () => inputRef.current?.click()
 
+  const resetDimensionSelections = () => {
+    setSelectedT(0)
+    setSelectedZ(0)
+    setSelectedC(0)
+  }
+
   const handleFile = (file: File) => {
     upload.reset()
+    resetDimensionSelections()
     setSelection(selectTiffFile(file))
     setIsDragging(false)
   }
@@ -82,6 +94,7 @@ export function TiffUpload({ uploadFile }: TiffUploadProps) {
 
   const handleClear = () => {
     upload.reset()
+    resetDimensionSelections()
     setSelection(clearTiffFileSelection())
     setIsDragging(false)
 
@@ -92,6 +105,7 @@ export function TiffUpload({ uploadFile }: TiffUploadProps) {
 
   const handleUpload = async () => {
     if (selection.file && upload.state.status !== 'uploading') {
+      resetDimensionSelections()
       await upload.startUpload(selection.file)
     }
   }
@@ -188,53 +202,18 @@ export function TiffUpload({ uploadFile }: TiffUploadProps) {
       )}
 
       {upload.state.status === 'success' && (
-        <div className="upload-result upload-result--success" role="status">
-          <strong>Upload complete</strong>
-          <dl className="tiff-metadata">
-            <div>
-              <dt>Filename</dt>
-              <dd>{upload.state.upload.filename}</dd>
-            </div>
-            <div>
-              <dt>Shape</dt>
-              <dd>{upload.state.upload.metadata.shape.join(' × ')}</dd>
-            </div>
-            <div>
-              <dt>Axes</dt>
-              <dd>{upload.state.upload.metadata.axes}</dd>
-            </div>
-            <div>
-              <dt>Data type</dt>
-              <dd>{upload.state.upload.metadata.dtype}</dd>
-            </div>
-            <div>
-              <dt>Width</dt>
-              <dd>{upload.state.upload.metadata.width}</dd>
-            </div>
-            <div>
-              <dt>Height</dt>
-              <dd>{upload.state.upload.metadata.height}</dd>
-            </div>
-            <div>
-              <dt>Time points</dt>
-              <dd>{upload.state.upload.metadata.time_points}</dd>
-            </div>
-            <div>
-              <dt>Z slices</dt>
-              <dd>{upload.state.upload.metadata.z_slices}</dd>
-            </div>
-            <div>
-              <dt>Channels</dt>
-              <dd>{upload.state.upload.metadata.channels}</dd>
-            </div>
-            <div>
-              <dt>Series count</dt>
-              <dd>{upload.state.upload.metadata.series_count}</dd>
-            </div>
-          </dl>
-          <code className="file-id">
-            File ID: {upload.state.upload.file_id}
-          </code>
+        <div className="upload-result upload-result--success">
+          <strong role="status">Upload complete</strong>
+          <TiffMetadataPanel upload={upload.state.upload} />
+          <TiffDimensionSelectors
+            metadata={upload.state.upload.metadata}
+            selectedT={selectedT}
+            selectedZ={selectedZ}
+            selectedC={selectedC}
+            onSelectedTChange={setSelectedT}
+            onSelectedZChange={setSelectedZ}
+            onSelectedCChange={setSelectedC}
+          />
         </div>
       )}
 

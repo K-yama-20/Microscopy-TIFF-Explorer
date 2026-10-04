@@ -232,7 +232,8 @@ a {
 .dropzone:focus-visible,
 .primary-button:focus-visible,
 .secondary-button:focus-visible,
-.clear-button:focus-visible {
+.clear-button:focus-visible,
+.dimension-control select:focus-visible {
   outline: 3px solid #bdf4e6;
   outline-offset: 3px;
 }
@@ -417,6 +418,12 @@ a {
   font-size: 0.75rem;
 }
 
+.metadata-panel h3 {
+  margin: 12px 0 0;
+  color: #f4fbf8;
+  font-size: 0.9rem;
+}
+
 .tiff-metadata {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -448,6 +455,49 @@ a {
   display: block;
   padding-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.dimension-selectors {
+  padding: 14px 0 0;
+  margin: 12px 0 0;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.dimension-selectors legend {
+  padding: 0;
+  color: #f4fbf8;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.dimension-selectors__controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.dimension-control {
+  display: grid;
+  gap: 6px;
+}
+
+.dimension-control label {
+  color: #acdacf;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.dimension-control select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 34px 0 12px;
+  color: #16302c;
+  cursor: pointer;
+  background: #f4fbf8;
+  border: 1px solid rgba(166, 229, 213, 0.72);
+  border-radius: 10px;
 }
 
 .upload-result--error {
