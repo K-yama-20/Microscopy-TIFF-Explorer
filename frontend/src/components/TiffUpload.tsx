@@ -6,6 +6,11 @@ import {
   useState,
 } from 'react'
 
+import type { RgbComponent } from '../types/api'
+import {
+  type PreviewTiffFunction,
+  useTiffPreview,
+} from '../hooks/useTiffPreview'
 import { type UploadTiffFunction, useTiffUpload } from '../hooks/useTiffUpload'
 import {
   clearTiffFileSelection,
@@ -15,17 +20,20 @@ import {
   type TiffFileSelectionState,
 } from '../utils/tiffFile'
 import { TiffDimensionSelectors } from './TiffDimensionSelectors'
+import { TiffColorComponentSelector } from './TiffColorComponentSelector'
 import { TiffMetadataPanel } from './TiffMetadataPanel'
+import { TiffPreview } from './TiffPreview'
 
 interface TiffUploadProps {
   uploadFile?: UploadTiffFunction
+  previewFile?: PreviewTiffFunction
 }
 
 const ACCEPTED_FILE_TYPES = '.tif,.tiff,image/tiff'
 const DROPZONE_INSTRUCTIONS_ID = 'tiff-dropzone-instructions'
 const VALIDATION_MESSAGE_ID = 'tiff-validation-message'
 
-export function TiffUpload({ uploadFile }: TiffUploadProps) {
+export function TiffUpload({ uploadFile, previewFile }: TiffUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [selection, setSelection] = useState<TiffFileSelectionState>(
     clearTiffFileSelection,
@@ -34,7 +42,21 @@ export function TiffUpload({ uploadFile }: TiffUploadProps) {
   const [selectedT, setSelectedT] = useState(0)
   const [selectedZ, setSelectedZ] = useState(0)
   const [selectedC, setSelectedC] = useState(0)
+  const [selectedComponent, setSelectedComponent] =
+    useState<RgbComponent>('composite')
   const upload = useTiffUpload(uploadFile)
+  const successfulUpload =
+    upload.state.status === 'success' ? upload.state.upload : undefined
+  const preview = useTiffPreview(
+    {
+      fileId: successfulUpload?.file_id,
+      t: selectedT,
+      z: selectedZ,
+      c: selectedC,
+      component: selectedComponent,
+    },
+    previewFile,
+  )
 
   const chooseFile = () => inputRef.current?.click()
 
@@ -42,6 +64,7 @@ export function TiffUpload({ uploadFile }: TiffUploadProps) {
     setSelectedT(0)
     setSelectedZ(0)
     setSelectedC(0)
+    setSelectedComponent('composite')
   }
 
   const handleFile = (file: File) => {
@@ -213,6 +236,17 @@ export function TiffUpload({ uploadFile }: TiffUploadProps) {
             onSelectedTChange={setSelectedT}
             onSelectedZChange={setSelectedZ}
             onSelectedCChange={setSelectedC}
+          />
+          {upload.state.upload.metadata.is_rgb && (
+            <TiffColorComponentSelector
+              value={selectedComponent}
+              onChange={setSelectedComponent}
+            />
+          )}
+          <TiffPreview
+            filename={upload.state.upload.filename}
+            component={selectedComponent}
+            state={preview}
           />
         </div>
       )}

@@ -12,6 +12,20 @@ export interface TiffMetadata {
   z_slices: number
   channels: number
   series_count: number
+  is_rgb: boolean
+  sample_count: number
+  rgb_components: RgbComponentName[]
+}
+
+export type RgbComponent = 'composite' | 'red' | 'green' | 'blue'
+
+export type RgbComponentName = Exclude<RgbComponent, 'composite'>
+
+export interface PreviewSelection {
+  t: number
+  z: number
+  c: number
+  component?: RgbComponent
 }
 
 export interface UploadTiffResponse {

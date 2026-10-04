@@ -46,6 +46,24 @@ def make_tiff_bytes(
     return output.getvalue()
 
 
+def make_rgb_tiff_bytes(
+    shape: tuple[int, ...],
+    axes: str,
+    *,
+    planarconfig: str,
+) -> bytes:
+    output = BytesIO()
+    tifffile.imwrite(
+        output,
+        np.zeros(shape, dtype=np.uint8),
+        ome=True,
+        metadata={"axes": axes},
+        photometric="rgb",
+        planarconfig=planarconfig,
+    )
+    return output.getvalue()
+
+
 def upload(
     app,
     filename: str,
@@ -108,7 +126,29 @@ def test_upload_response_contains_normalized_primary_series_metadata(
         "z_slices": 3,
         "channels": 4,
         "series_count": 1,
+        "is_rgb": False,
+        "sample_count": 1,
+        "rgb_components": [],
     }
+
+
+def test_upload_response_keeps_rgb_samples_separate_from_channels(
+    tmp_path: Path,
+) -> None:
+    response = upload(
+        make_app(tmp_path),
+        "channels-and-rgb.ome.tif",
+        make_rgb_tiff_bytes((2, 5, 7, 3), "CYXS", planarconfig="contig"),
+    )
+
+    assert response.status_code == 201
+    metadata = response.json()["metadata"]
+    assert metadata["shape"] == [2, 5, 7, 3]
+    assert metadata["axes"] == "CYXS"
+    assert metadata["channels"] == 2
+    assert metadata["is_rgb"] is True
+    assert metadata["sample_count"] == 3
+    assert metadata["rgb_components"] == ["red", "green", "blue"]
 
 
 def test_uploads_valid_tiff_extension(tmp_path: Path) -> None:
@@ -250,6 +290,27 @@ def test_ambiguous_axes_return_safe_error_and_remove_upload(tmp_path: Path) -> N
         "ambiguous.tif",
         make_tiff_bytes((2, 5, 7), axes=None),
     )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "UNSUPPORTED_AXES"
+    assert list(tmp_path.iterdir()) == []
+    assert app.state.temporary_file_manager._uploads == {}
+
+
+def test_unsupported_sample_model_removes_file_and_registration(
+    tmp_path: Path,
+) -> None:
+    output = BytesIO()
+    tifffile.imwrite(
+        output,
+        np.zeros((3, 5, 7), dtype=np.uint8),
+        ome=False,
+        metadata={"axes": "SYX"},
+        photometric="minisblack",
+    )
+    app = make_app(tmp_path)
+
+    response = upload(app, "unsupported.tif", output.getvalue())
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "UNSUPPORTED_AXES"

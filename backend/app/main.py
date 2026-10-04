@@ -3,6 +3,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.preview import router as preview_router
 from app.api.upload import router as upload_router
 from app.core.config import Settings
 from app.models.errors import ApiServiceError
@@ -55,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     application.include_router(upload_router)
+    application.include_router(preview_router)
     return application
 
 

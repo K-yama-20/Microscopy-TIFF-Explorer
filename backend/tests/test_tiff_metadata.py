@@ -52,6 +52,79 @@ def test_parses_supported_axes_and_dtypes(
         metadata.channels,
     ) == expected_counts
     assert metadata.series_count == 1
+    assert metadata.is_rgb is False
+    assert metadata.sample_count == 1
+    assert metadata.rgb_components == []
+
+
+@pytest.mark.parametrize(
+    ("axes", "shape", "planarconfig"),
+    [
+        ("YXS", (5, 7, 3), "contig"),
+        ("SYX", (3, 5, 7), "separate"),
+        ("ZYXS", (2, 5, 7, 3), "contig"),
+        ("CYXS", (2, 5, 7, 3), "contig"),
+        ("ZCYXS", (2, 2, 5, 7, 3), "contig"),
+        ("TZCYXS", (2, 2, 2, 5, 7, 3), "contig"),
+    ],
+)
+@pytest.mark.parametrize("dtype", [np.uint8, np.uint16])
+def test_parses_metadata_confirmed_rgb_axes_in_source_order(
+    tmp_path: Path,
+    axes: str,
+    shape: tuple[int, ...],
+    planarconfig: str,
+    dtype: np.typing.DTypeLike,
+) -> None:
+    path = tmp_path / f"{axes}-{np.dtype(dtype).name}.ome.tif"
+    tifffile.imwrite(
+        path,
+        np.zeros(shape, dtype=dtype),
+        ome=True,
+        metadata={"axes": axes},
+        photometric="rgb",
+        planarconfig=planarconfig,
+    )
+
+    metadata = parse_tiff_metadata(path)
+
+    assert metadata.shape == list(shape)
+    assert metadata.axes == axes
+    assert metadata.channels == (shape[axes.index("C")] if "C" in axes else 1)
+    assert metadata.is_rgb is True
+    assert metadata.sample_count == 3
+    assert metadata.rgb_components == ["red", "green", "blue"]
+
+
+@pytest.mark.parametrize(
+    ("shape", "axes", "photometric", "planarconfig"),
+    [
+        ((3, 5, 7), "SYX", "minisblack", None),
+        ((4, 5, 7), "SYX", "rgb", "separate"),
+        ((5, 7, 4), "YXS", "rgb", "contig"),
+    ],
+)
+def test_rejects_unsupported_sample_models(
+    tmp_path: Path,
+    shape: tuple[int, ...],
+    axes: str,
+    photometric: str,
+    planarconfig: str | None,
+) -> None:
+    path = tmp_path / "unsupported-samples.ome.tif"
+    tifffile.imwrite(
+        path,
+        np.zeros(shape, dtype=np.uint8),
+        ome=False,
+        metadata={"axes": axes},
+        photometric=photometric,
+        planarconfig=planarconfig,
+    )
+
+    with pytest.raises(UnsupportedAxesError) as error:
+        parse_tiff_metadata(path)
+
+    assert error.value.code == "UNSUPPORTED_AXES"
 
 
 def test_counts_all_series_but_parses_the_primary_series(tmp_path: Path) -> None:

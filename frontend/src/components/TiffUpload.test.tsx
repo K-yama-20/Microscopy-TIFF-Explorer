@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClientError } from '../api/client'
+import type { PreviewTiffFunction } from '../hooks/useTiffPreview'
 import type { UploadTiffFunction } from '../hooks/useTiffUpload'
 import type { TiffMetadata, UploadTiffResponse } from '../types/api'
 import { TiffUpload } from './TiffUpload'
@@ -63,6 +64,9 @@ function successfulUpload(
       z_slices: 3,
       channels: 4,
       series_count: 1,
+      is_rgb: false,
+      sample_count: 1,
+      rgb_components: [],
       ...metadataOverrides,
     },
   }
@@ -95,6 +99,11 @@ function changeSelect(select: HTMLSelectElement, value: number) {
   select.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
+function changeSelectValue(select: HTMLSelectElement, value: string) {
+  select.value = value
+  select.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
 async function selectAndUpload(
   container: HTMLElement,
   filename = 'selected.tif',
@@ -115,6 +124,24 @@ describe('TiffUpload', () => {
     document.body.append(container)
     root = createRoot(container)
 
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(new Blob(['png'], { type: 'image/png' }), {
+          status: 200,
+          headers: { 'Content-Type': 'image/png' },
+        }),
+      ),
+    )
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn().mockReturnValue('blob:preview'),
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    })
+
     act(() => root.render(<TiffUpload />))
   })
 
@@ -122,6 +149,7 @@ describe('TiffUpload', () => {
     act(() => root.unmount())
     container.remove()
     testEnvironment.IS_REACT_ACT_ENVIRONMENT = false
+    vi.unstubAllGlobals()
   })
 
   it('shows and clears the visual dragging state', () => {
@@ -227,6 +255,269 @@ describe('TiffUpload', () => {
     expect(getMetadataValue(container, 'Z slices')).toBe('3')
     expect(getMetadataValue(container, 'Channels')).toBe('4')
     expect(getMetadataValue(container, 'Series count')).toBe('1')
+    expect(getMetadataValue(container, 'RGB')).toBe('No')
+    expect(getMetadataValue(container, 'Sample count')).toBe('1')
+    expect(getMetadataValue(container, 'RGB components')).toBe('None')
+    expect(getSelectByLabel(container, 'Color component')).toBeNull()
+  })
+
+  it('shows RGB metadata and an independent four-option component selector', async () => {
+    const uploadFile: UploadTiffFunction = vi.fn().mockResolvedValue(
+      successfulUpload('rgb.ome.tif', {
+        shape: [2, 5, 7, 3],
+        axes: 'CYXS',
+        dtype: 'uint8',
+        time_points: 1,
+        z_slices: 1,
+        channels: 2,
+        is_rgb: true,
+        sample_count: 3,
+        rgb_components: ['red', 'green', 'blue'],
+      }),
+    )
+    const previewFile: PreviewTiffFunction = vi
+      .fn()
+      .mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} previewFile={previewFile} />,
+      ),
+    )
+
+    await selectAndUpload(container)
+
+    expect(getMetadataValue(container, 'RGB')).toBe('Yes')
+    expect(getMetadataValue(container, 'Sample count')).toBe('3')
+    expect(getMetadataValue(container, 'RGB components')).toBe(
+      'red, green, blue',
+    )
+    const componentSelect = getSelectByLabel(container, 'Color component')
+    const channelSelect = getSelectByLabel(container, 'Channel')
+    expect(componentSelect?.value).toBe('composite')
+    expect(
+      Array.from(componentSelect?.options ?? [], (option) => [
+        option.value,
+        option.textContent,
+      ]),
+    ).toEqual([
+      ['composite', 'RGB composite'],
+      ['red', 'Red'],
+      ['green', 'Green'],
+      ['blue', 'Blue'],
+    ])
+
+    await act(async () => changeSelect(channelSelect!, 1))
+    await act(async () => changeSelectValue(componentSelect!, 'green'))
+
+    expect(channelSelect?.value).toBe('1')
+    expect(componentSelect?.value).toBe('green')
+    expect(previewFile).toHaveBeenLastCalledWith(
+      '95ed59ce-198b-4f17-89da-74e17d457df3',
+      { t: 0, z: 0, c: 1, component: 'green' },
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('resets the component for upload, replacement, Reset, and Clear', async () => {
+    const rgbUpload = successfulUpload('rgb.tif', {
+      shape: [5, 7, 3],
+      axes: 'YXS',
+      dtype: 'uint8',
+      time_points: 1,
+      z_slices: 1,
+      channels: 1,
+      is_rgb: true,
+      sample_count: 3,
+      rgb_components: ['red', 'green', 'blue'],
+    })
+    const uploadFile: UploadTiffFunction = vi.fn().mockResolvedValue(rgbUpload)
+    const previewFile: PreviewTiffFunction = vi
+      .fn()
+      .mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} previewFile={previewFile} />,
+      ),
+    )
+    await selectAndUpload(container, 'first.tif')
+
+    await act(async () =>
+      changeSelectValue(getSelectByLabel(container, 'Color component')!, 'red'),
+    )
+    await act(async () => findButton(container, 'Upload TIFF')?.click())
+    expect(getSelectByLabel(container, 'Color component')?.value).toBe(
+      'composite',
+    )
+
+    await act(async () =>
+      changeSelectValue(
+        getSelectByLabel(container, 'Color component')!,
+        'blue',
+      ),
+    )
+    act(() =>
+      dispatchDragEvent(getDropzone(container), 'drop', [
+        createFile('replacement.tif'),
+      ]),
+    )
+    await act(async () => findButton(container, 'Upload TIFF')?.click())
+    expect(getSelectByLabel(container, 'Color component')?.value).toBe(
+      'composite',
+    )
+
+    await act(async () =>
+      changeSelectValue(
+        getSelectByLabel(container, 'Color component')!,
+        'green',
+      ),
+    )
+    act(() => findButton(container, 'Reset')?.click())
+    await selectAndUpload(container, 'after-reset.tif')
+    expect(getSelectByLabel(container, 'Color component')?.value).toBe(
+      'composite',
+    )
+
+    await act(async () =>
+      changeSelectValue(getSelectByLabel(container, 'Color component')!, 'red'),
+    )
+    act(() => findButton(container, 'Clear')?.click())
+    await selectAndUpload(container, 'after-clear.tif')
+    expect(getSelectByLabel(container, 'Color component')?.value).toBe(
+      'composite',
+    )
+  })
+
+  it('refreshes preview for T, Z, and C changes', async () => {
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    const previewFile: PreviewTiffFunction = vi
+      .fn()
+      .mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} previewFile={previewFile} />,
+      ),
+    )
+    await selectAndUpload(container)
+
+    await act(async () => changeSelect(getSelectByLabel(container, 'Time')!, 1))
+    await act(async () => changeSelect(getSelectByLabel(container, 'Z')!, 2))
+    await act(async () =>
+      changeSelect(getSelectByLabel(container, 'Channel')!, 3),
+    )
+
+    expect(previewFile).toHaveBeenLastCalledWith(
+      '95ed59ce-198b-4f17-89da-74e17d457df3',
+      { t: 1, z: 2, c: 3, component: 'composite' },
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('shows preview loading, success, and structured API errors', async () => {
+    let resolvePreview: ((blob: Blob) => void) | undefined
+    const pendingPreview = new Promise<Blob>((resolve) => {
+      resolvePreview = resolve
+    })
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    const previewFile: PreviewTiffFunction = vi
+      .fn()
+      .mockReturnValueOnce(pendingPreview)
+      .mockRejectedValueOnce(
+        new ApiClientError('PROCESSING_ERROR', 'Preview failed safely.'),
+      )
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} previewFile={previewFile} />,
+      ),
+    )
+
+    await selectAndUpload(container)
+    expect(container.textContent).toContain('Loading preview…')
+
+    await act(async () =>
+      resolvePreview?.(new Blob(['png'], { type: 'image/png' })),
+    )
+    expect(
+      container.querySelector<HTMLImageElement>('.preview-image')?.src,
+    ).toBe('blob:preview')
+
+    await act(async () => changeSelect(getSelectByLabel(container, 'Z')!, 1))
+    expect(container.querySelector('.preview-error')?.textContent).toBe(
+      'Preview failed safely.',
+    )
+  })
+
+  it('aborts stale requests, ignores old responses, and revokes blob URLs', async () => {
+    const resolvers: Array<(blob: Blob) => void> = []
+    const previewFile: PreviewTiffFunction = vi.fn(
+      () =>
+        new Promise<Blob>((resolve) => {
+          resolvers.push(resolve)
+        }),
+    )
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    const createObjectUrl = vi
+      .fn()
+      .mockReturnValueOnce('blob:newer')
+      .mockReturnValueOnce('blob:newest')
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: createObjectUrl,
+    })
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} previewFile={previewFile} />,
+      ),
+    )
+    await selectAndUpload(container)
+    const firstSignal = vi.mocked(previewFile).mock.calls[0][2]
+
+    await act(async () => changeSelect(getSelectByLabel(container, 'Z')!, 1))
+    expect(firstSignal?.aborted).toBe(true)
+
+    await act(async () =>
+      resolvers[1](new Blob(['newer'], { type: 'image/png' })),
+    )
+    await act(async () =>
+      resolvers[0](new Blob(['stale'], { type: 'image/png' })),
+    )
+    expect(createObjectUrl).toHaveBeenCalledOnce()
+    expect(
+      container.querySelector<HTMLImageElement>('.preview-image')?.src,
+    ).toBe('blob:newer')
+
+    await act(async () => changeSelect(getSelectByLabel(container, 'Z')!, 2))
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:newer')
+    await act(async () =>
+      resolvers[2](new Blob(['newest'], { type: 'image/png' })),
+    )
+    act(() => findButton(container, 'Clear')?.click())
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:newest')
+  })
+
+  it('revokes the current preview URL when unmounted', async () => {
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    const previewFile: PreviewTiffFunction = vi
+      .fn()
+      .mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} previewFile={previewFile} />,
+      ),
+    )
+    await selectAndUpload(container)
+
+    act(() => root.unmount())
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview')
+    root = createRoot(container)
   })
 
   it('does not show dimension selectors for YX metadata', async () => {
@@ -342,11 +633,9 @@ describe('TiffUpload', () => {
     expect(zSelect?.options).toHaveLength(3)
     expect(channelSelect?.options).toHaveLength(4)
 
-    act(() => {
-      changeSelect(timeSelect!, 1)
-      changeSelect(zSelect!, 2)
-      changeSelect(channelSelect!, 3)
-    })
+    await act(async () => changeSelect(timeSelect!, 1))
+    await act(async () => changeSelect(zSelect!, 2))
+    await act(async () => changeSelect(channelSelect!, 3))
 
     expect(timeSelect?.value).toBe('1')
     expect(zSelect?.value).toBe('2')

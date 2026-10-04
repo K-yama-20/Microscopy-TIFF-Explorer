@@ -10,7 +10,8 @@ from app.models.upload import TiffMetadata
 logger = logging.getLogger(__name__)
 
 SUPPORTED_DTYPES = {np.dtype("uint8"), np.dtype("uint16")}
-SUPPORTED_AXIS_NAMES = frozenset("TZCYX")
+SUPPORTED_AXIS_NAMES = frozenset("TZCYXS")
+RGB_COMPONENTS = ("red", "green", "blue")
 
 
 class InvalidTiffError(ApiServiceError):
@@ -52,6 +53,9 @@ def parse_tiff_metadata(path: Path) -> TiffMetadata:
             axes = primary_series.axes or ""
             dtype = np.dtype(primary_series.dtype)
             series_count = len(tif.series)
+            first_page = primary_series.pages[0]
+            photometric = first_page.photometric
+            samples_per_pixel = int(first_page.samplesperpixel)
     except ApiServiceError:
         raise
     except Exception:
@@ -64,6 +68,13 @@ def parse_tiff_metadata(path: Path) -> TiffMetadata:
     if not _has_supported_axes(axes, shape):
         raise UnsupportedAxesError
 
+    is_rgb = _is_supported_rgb(
+        axes,
+        shape,
+        photometric=photometric,
+        samples_per_pixel=samples_per_pixel,
+    )
+
     axis_sizes = dict(zip(axes, shape, strict=True))
     return TiffMetadata(
         shape=list(shape),
@@ -75,6 +86,9 @@ def parse_tiff_metadata(path: Path) -> TiffMetadata:
         z_slices=axis_sizes.get("Z", 1),
         channels=axis_sizes.get("C", 1),
         series_count=series_count,
+        is_rgb=is_rgb,
+        sample_count=3 if is_rgb else 1,
+        rgb_components=list(RGB_COMPONENTS) if is_rgb else [],
     )
 
 
@@ -86,3 +100,26 @@ def _has_supported_axes(axes: str, shape: tuple[int, ...]) -> bool:
         and "X" in axes
         and "Y" in axes
     )
+
+
+def _is_supported_rgb(
+    axes: str,
+    shape: tuple[int, ...],
+    *,
+    photometric: object,
+    samples_per_pixel: int,
+) -> bool:
+    """Validate the TIFF sample model without guessing from dimension sizes."""
+    has_sample_axis = "S" in axes
+    is_rgb_photometric = getattr(photometric, "name", None) == "RGB"
+
+    if not has_sample_axis:
+        if is_rgb_photometric or samples_per_pixel != 1:
+            raise UnsupportedAxesError
+        return False
+
+    sample_size = shape[axes.index("S")]
+    if not is_rgb_photometric or samples_per_pixel != 3 or sample_size != 3:
+        raise UnsupportedAxesError
+
+    return True

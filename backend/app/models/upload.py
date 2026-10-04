@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TiffMetadata(BaseModel):
@@ -11,6 +11,9 @@ class TiffMetadata(BaseModel):
     z_slices: int
     channels: int
     series_count: int
+    is_rgb: bool = False
+    sample_count: int = 1
+    rgb_components: list[str] = Field(default_factory=list)
 
 
 class UploadResponse(BaseModel):
