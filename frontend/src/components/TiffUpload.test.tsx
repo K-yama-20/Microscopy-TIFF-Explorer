@@ -5,8 +5,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClientError } from '../api/client'
-import type { UploadTiffResponse } from '../types/api'
 import type { UploadTiffFunction } from '../hooks/useTiffUpload'
+import type { UploadTiffResponse } from '../types/api'
 import { TiffUpload } from './TiffUpload'
 
 const testEnvironment = globalThis as typeof globalThis & {
@@ -50,7 +50,25 @@ function successfulUpload(filename = 'sample.tif'): UploadTiffResponse {
   return {
     file_id: '95ed59ce-198b-4f17-89da-74e17d457df3',
     filename,
+    metadata: {
+      shape: [2, 3, 4, 5, 7],
+      axes: 'TZCYX',
+      dtype: 'uint16',
+      width: 7,
+      height: 5,
+      time_points: 2,
+      z_slices: 3,
+      channels: 4,
+      series_count: 1,
+    },
   }
+}
+
+function getMetadataValue(container: HTMLElement, label: string) {
+  const term = Array.from(container.querySelectorAll('dt')).find(
+    (candidate) => candidate.textContent === label,
+  )
+  return term?.nextElementSibling?.textContent
 }
 
 describe('TiffUpload', () => {
@@ -147,7 +165,7 @@ describe('TiffUpload', () => {
     ).toBe('true')
   })
 
-  it('shows the server filename and file ID after a successful upload', async () => {
+  it('shows normalized metadata after a successful upload', async () => {
     const uploadFile: UploadTiffFunction = vi
       .fn()
       .mockResolvedValue(successfulUpload('server-sample.tif'))
@@ -165,6 +183,16 @@ describe('TiffUpload', () => {
     expect(container.textContent).toContain(
       '95ed59ce-198b-4f17-89da-74e17d457df3',
     )
+    expect(getMetadataValue(container, 'Filename')).toBe('server-sample.tif')
+    expect(getMetadataValue(container, 'Shape')).toBe('2 × 3 × 4 × 5 × 7')
+    expect(getMetadataValue(container, 'Axes')).toBe('TZCYX')
+    expect(getMetadataValue(container, 'Data type')).toBe('uint16')
+    expect(getMetadataValue(container, 'Width')).toBe('7')
+    expect(getMetadataValue(container, 'Height')).toBe('5')
+    expect(getMetadataValue(container, 'Time points')).toBe('2')
+    expect(getMetadataValue(container, 'Z slices')).toBe('3')
+    expect(getMetadataValue(container, 'Channels')).toBe('4')
+    expect(getMetadataValue(container, 'Series count')).toBe('1')
   })
 
   it('shows a user-facing API error', async () => {
@@ -207,6 +235,31 @@ describe('TiffUpload', () => {
 
     expect(container.textContent).not.toContain('Upload complete')
     expect(container.textContent).not.toContain('selected.tif')
+    expect(container.querySelector('.tiff-metadata')).toBeNull()
+  })
+
+  it('clears previous metadata when a replacement file is selected', async () => {
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
+    act(() =>
+      dispatchDragEvent(getDropzone(container), 'drop', [
+        createFile('selected.tif'),
+      ]),
+    )
+    await act(async () => findButton(container, 'Upload TIFF')?.click())
+    expect(container.querySelector('.tiff-metadata')).not.toBeNull()
+
+    act(() =>
+      dispatchDragEvent(getDropzone(container), 'drop', [
+        createFile('replacement.tif'),
+      ]),
+    )
+
+    expect(container.querySelector('.tiff-metadata')).toBeNull()
+    expect(container.textContent).not.toContain('Upload complete')
+    expect(container.textContent).toContain('replacement.tif')
   })
 
   it('clears an API error when the file is replaced', async () => {

@@ -7,21 +7,15 @@ from uuid import UUID, uuid4
 
 from fastapi import UploadFile
 
+from app.models.errors import ApiServiceError
+
 logger = logging.getLogger(__name__)
 
 TIFF_EXTENSIONS = {".tif", ".tiff"}
 UPLOAD_CHUNK_SIZE_BYTES = 1024 * 1024
 
 
-class UploadServiceError(Exception):
-    def __init__(self, code: str, message: str, status_code: int) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.status_code = status_code
-
-
-class InvalidFileTypeError(UploadServiceError):
+class InvalidFileTypeError(ApiServiceError):
     def __init__(self) -> None:
         super().__init__(
             code="INVALID_FILE_TYPE",
@@ -30,7 +24,7 @@ class InvalidFileTypeError(UploadServiceError):
         )
 
 
-class FileTooLargeError(UploadServiceError):
+class FileTooLargeError(ApiServiceError):
     def __init__(self) -> None:
         super().__init__(
             code="FILE_TOO_LARGE",
@@ -39,7 +33,7 @@ class FileTooLargeError(UploadServiceError):
         )
 
 
-class UploadStorageError(UploadServiceError):
+class UploadStorageError(ApiServiceError):
     def __init__(self) -> None:
         super().__init__(
             code="UPLOAD_FAILED",
@@ -98,7 +92,7 @@ class TemporaryFileManager:
             with self._uploads_lock:
                 self._uploads[file_id] = temporary_upload
             return temporary_upload
-        except UploadServiceError:
+        except ApiServiceError:
             self._remove_partial_file(destination)
             raise
         except Exception:
@@ -109,6 +103,19 @@ class TemporaryFileManager:
     def get(self, file_id: UUID) -> TemporaryUpload | None:
         with self._uploads_lock:
             return self._uploads.get(file_id)
+
+    def remove(self, file_id: UUID) -> None:
+        """Forget an upload and remove its temporary file if it exists."""
+        with self._uploads_lock:
+            upload = self._uploads.pop(file_id, None)
+
+        if upload is None:
+            return
+
+        try:
+            upload.path.unlink(missing_ok=True)
+        except OSError:
+            logger.exception("Could not remove a temporary upload")
 
     def _create_destination(self, extension: str) -> tuple[UUID, Path, BinaryIO]:
         for _ in range(3):

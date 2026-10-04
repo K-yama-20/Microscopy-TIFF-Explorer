@@ -13,6 +13,17 @@ describe('uploadTiff', () => {
     const responseBody = {
       file_id: '95ed59ce-198b-4f17-89da-74e17d457df3',
       filename: 'sample.tif',
+      metadata: {
+        shape: [2, 3, 5, 7],
+        axes: 'ZCYX',
+        dtype: 'uint16',
+        width: 7,
+        height: 5,
+        time_points: 1,
+        z_slices: 2,
+        channels: 3,
+        series_count: 1,
+      },
     }
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(responseBody), {
@@ -54,6 +65,39 @@ describe('uploadTiff', () => {
       new ApiClientError(
         'FILE_TOO_LARGE',
         'The TIFF file exceeds the maximum allowed size.',
+      ),
+    )
+  })
+
+  it('rejects a successful response with invalid metadata', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            file_id: '95ed59ce-198b-4f17-89da-74e17d457df3',
+            filename: 'sample.tif',
+            metadata: {
+              shape: [5, 7],
+              axes: 'YX',
+              dtype: 'float32',
+              width: 7,
+              height: 5,
+              time_points: 1,
+              z_slices: 1,
+              channels: 1,
+              series_count: 1,
+            },
+          }),
+          { status: 201, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    )
+
+    await expect(uploadTiff(new File(['x'], 'sample.tif'))).rejects.toEqual(
+      new ApiClientError(
+        'INVALID_RESPONSE',
+        'The upload service returned an unexpected response. Please try again.',
       ),
     )
   })

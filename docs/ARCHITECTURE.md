@@ -148,14 +148,17 @@ Example response:
 {
   "file_id": "a UUID",
   "filename": "sample.ome.tif",
-  "shape": [5, 20, 3, 1024, 1024],
-  "axes": "TZCYX",
-  "dtype": "uint16",
-  "width": 1024,
-  "height": 1024,
-  "time_points": 5,
-  "z_slices": 20,
-  "channels": 3
+  "metadata": {
+    "shape": [5, 20, 3, 1024, 1024],
+    "axes": "TZCYX",
+    "dtype": "uint16",
+    "width": 1024,
+    "height": 1024,
+    "time_points": 5,
+    "z_slices": 20,
+    "channels": 3,
+    "series_count": 1
+  }
 }
 ```
 
@@ -167,10 +170,9 @@ The minimum supported structures are `YX`, `ZYX`, `CYX`, `ZCYX`, and `TZCYX`. Co
 
 ## 12. Metadata Model
 
-The normalized backend metadata model includes:
+The upload response keeps `file_id` and the original `filename` at the top
+level. Its nested `metadata` object includes:
 
-- `file_id`
-- original `filename`
 - `shape`
 - `axes`
 - `dtype`
