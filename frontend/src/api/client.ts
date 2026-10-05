@@ -1,6 +1,7 @@
 import type {
   ApiErrorResponse,
   PreviewSelection,
+  RgbComponent,
   RgbComponentName,
   TiffMetadata,
   UploadTiffResponse,
@@ -22,6 +23,11 @@ export class ApiClientError extends Error {
 }
 
 export interface DownloadedPng {
+  blob: Blob
+  filename: string
+}
+
+export interface DownloadedZip {
   blob: Blob
   filename: string
 }
@@ -112,9 +118,13 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-function safeDownloadFilename(contentDisposition: string | null): string {
+function safeDownloadFilename(
+  contentDisposition: string | null,
+  extension: '.png' | '.zip',
+  fallback: string,
+): string {
   if (!contentDisposition) {
-    return 'image.png'
+    return fallback
   }
 
   const extendedMatch = contentDisposition.match(
@@ -130,12 +140,12 @@ function safeDownloadFilename(contentDisposition: string | null): string {
     try {
       candidate = decodeURIComponent(candidate)
     } catch {
-      return 'image.png'
+      return fallback
     }
   }
 
   if (!candidate) {
-    return 'image.png'
+    return fallback
   }
 
   const basename = candidate.replaceAll('\\', '/').split('/').at(-1) ?? ''
@@ -148,8 +158,8 @@ function safeDownloadFilename(contentDisposition: string | null): string {
     .replace(/[^A-Za-z0-9._-]+/g, '_')
     .replace(/^[._-]+|[._-]+$/g, '')
 
-  if (!sanitized || !sanitized.toLowerCase().endsWith('.png')) {
-    return 'image.png'
+  if (!sanitized || !sanitized.toLowerCase().endsWith(extension)) {
+    return fallback
   }
 
   return sanitized
@@ -303,6 +313,63 @@ export async function downloadTiffPng(
 
   return {
     blob: await response.blob(),
-    filename: safeDownloadFilename(response.headers.get('Content-Disposition')),
+    filename: safeDownloadFilename(
+      response.headers.get('Content-Disposition'),
+      '.png',
+      'image.png',
+    ),
+  }
+}
+
+export async function downloadTiffZip(
+  fileId: string,
+  component: RgbComponent = 'composite',
+  signal?: AbortSignal,
+): Promise<DownloadedZip> {
+  const query = new URLSearchParams({ component })
+
+  let response: Response
+  try {
+    response = await fetch(
+      `${API_BASE_URL}/api/tiff/${encodeURIComponent(fileId)}/export/zip?${query}`,
+      { signal },
+    )
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error
+    }
+
+    throw new ApiClientError(
+      'NETWORK_ERROR',
+      'Could not reach the ZIP export service. Please try again.',
+    )
+  }
+
+  if (!response.ok) {
+    const payload = await readJson(response)
+    if (isApiErrorResponse(payload)) {
+      throw new ApiClientError(payload.error.code, payload.error.message)
+    }
+
+    throw new ApiClientError(
+      'PROCESSING_ERROR',
+      'The ZIP export could not be generated. Please try again.',
+    )
+  }
+
+  if (!response.headers.get('Content-Type')?.startsWith('application/zip')) {
+    throw new ApiClientError(
+      'INVALID_RESPONSE',
+      'The ZIP export service returned an unexpected response. Please try again.',
+    )
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: safeDownloadFilename(
+      response.headers.get('Content-Disposition'),
+      '.zip',
+      'images.zip',
+    ),
   }
 }

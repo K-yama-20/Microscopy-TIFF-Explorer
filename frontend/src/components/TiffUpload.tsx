@@ -12,6 +12,10 @@ import {
   useTiffPngDownload,
 } from '../hooks/useTiffPngDownload'
 import {
+  type DownloadTiffZipFunction,
+  useTiffZipDownload,
+} from '../hooks/useTiffZipDownload'
+import {
   type PreviewTiffFunction,
   useTiffPreview,
 } from '../hooks/useTiffPreview'
@@ -32,6 +36,7 @@ interface TiffUploadProps {
   uploadFile?: UploadTiffFunction
   previewFile?: PreviewTiffFunction
   downloadPng?: DownloadTiffPngFunction
+  downloadZip?: DownloadTiffZipFunction
 }
 
 const ACCEPTED_FILE_TYPES = '.tif,.tiff,image/tiff'
@@ -42,6 +47,7 @@ export function TiffUpload({
   uploadFile,
   previewFile,
   downloadPng,
+  downloadZip,
 }: TiffUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [selection, setSelection] = useState<TiffFileSelectionState>(
@@ -75,6 +81,13 @@ export function TiffUpload({
       component: selectedComponent,
     },
     downloadPng,
+  )
+  const zipDownload = useTiffZipDownload(
+    {
+      fileId: successfulUpload?.file_id,
+      component: selectedComponent,
+    },
+    downloadZip,
   )
 
   const chooseFile = () => inputRef.current?.click()
@@ -283,6 +296,23 @@ export function TiffUpload({
             {pngDownload.state.status === 'error' && (
               <p className="download-error" role="alert">
                 {pngDownload.state.message}
+              </p>
+            )}
+            <button
+              className="secondary-button download-button"
+              type="button"
+              disabled={
+                !successfulUpload || zipDownload.state.status === 'exporting'
+              }
+              onClick={() => void zipDownload.startDownload()}
+            >
+              {zipDownload.state.status === 'exporting'
+                ? 'Exporting…'
+                : 'Export Stack as ZIP'}
+            </button>
+            {zipDownload.state.status === 'error' && (
+              <p className="download-error" role="alert">
+                {zipDownload.state.message}
               </p>
             )}
           </div>

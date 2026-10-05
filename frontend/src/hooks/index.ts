@@ -1,3 +1,4 @@
 export * from './useTiffPreview'
 export * from './useTiffPngDownload'
+export * from './useTiffZipDownload'
 export * from './useTiffUpload'

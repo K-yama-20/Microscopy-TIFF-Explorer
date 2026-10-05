@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from app.api.png_export import router as png_export_router
 from app.api.preview import router as preview_router
 from app.api.upload import router as upload_router
+from app.api.zip_export import router as zip_export_router
 from app.core.config import Settings
 from app.models.errors import ApiServiceError
 from app.models.health import HealthResponse
@@ -60,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(upload_router)
     application.include_router(preview_router)
     application.include_router(png_export_router)
+    application.include_router(zip_export_router)
     return application
 
 

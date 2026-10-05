@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ApiClientError,
   downloadTiffPng,
+  downloadTiffZip,
   fetchTiffPreview,
   uploadTiff,
 } from './client'
@@ -327,5 +328,113 @@ describe('downloadTiffPng', () => {
     await expect(
       downloadTiffPng('file-id', { t: 0, z: 0, c: 0 }),
     ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+  })
+})
+
+describe('downloadTiffZip', () => {
+  it('requests only the component and returns a ZIP with a safe filename', async () => {
+    const zip = new Blob(['zip'], { type: 'application/zip' })
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(zip, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': 'attachment; filename="sample_stack_B.zip"',
+        },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+
+    const result = await downloadTiffZip('file id', 'blue', controller.signal)
+
+    expect(result.blob.type).toBe('application/zip')
+    expect(result.filename).toBe('sample_stack_B.zip')
+    const [url, request] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toMatch(/\/api\/tiff\/file%20id\/export\/zip\?component=blue$/)
+    expect(url).not.toMatch(/[?&][tzc]=/)
+    expect(request.signal).toBe(controller.signal)
+  })
+
+  it('defaults the component to composite', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new Blob(['zip']), {
+        status: 200,
+        headers: { 'Content-Type': 'application/zip' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await downloadTiffZip('file-id')
+
+    expect(fetchMock.mock.calls[0][0]).toMatch(/component=composite$/)
+  })
+
+  it.each([
+    [null, 'images.zip'],
+    ['attachment', 'images.zip'],
+    ['attachment; filename="../../unsafe.zip"', 'unsafe.zip'],
+    ['attachment; filename="not-a-zip.png"', 'images.zip'],
+    ['attachment; filename="bad:name.zip"', 'bad_name.zip'],
+  ])(
+    'uses a safe ZIP filename for Content-Disposition %s',
+    async (contentDisposition, expected) => {
+      const headers = new Headers({ 'Content-Type': 'application/zip' })
+      if (contentDisposition) {
+        headers.set('Content-Disposition', contentDisposition)
+      }
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValue(
+            new Response(new Blob(['zip']), { status: 200, headers }),
+          ),
+      )
+
+      await expect(downloadTiffZip('file-id')).resolves.toMatchObject({
+        filename: expected,
+      })
+    },
+  )
+
+  it('turns a structured ZIP export error into a client error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 'INVALID_RGB_COMPONENT',
+              message: 'Choose a valid RGB component.',
+            },
+          }),
+          { status: 422, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    )
+
+    await expect(downloadTiffZip('file-id', 'red')).rejects.toEqual(
+      new ApiClientError(
+        'INVALID_RGB_COMPONENT',
+        'Choose a valid RGB component.',
+      ),
+    )
+  })
+
+  it('rejects a non-ZIP success response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('not zip', {
+          status: 200,
+          headers: { 'Content-Type': 'text/plain' },
+        }),
+      ),
+    )
+
+    await expect(downloadTiffZip('file-id')).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    })
   })
 })

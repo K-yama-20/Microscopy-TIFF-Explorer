@@ -4,8 +4,13 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiClientError, type DownloadedPng } from '../api/client'
+import {
+  ApiClientError,
+  type DownloadedPng,
+  type DownloadedZip,
+} from '../api/client'
 import type { DownloadTiffPngFunction } from '../hooks/useTiffPngDownload'
+import type { DownloadTiffZipFunction } from '../hooks/useTiffZipDownload'
 import type { PreviewTiffFunction } from '../hooks/useTiffPreview'
 import type { UploadTiffFunction } from '../hooks/useTiffUpload'
 import type { TiffMetadata, UploadTiffResponse } from '../types/api'
@@ -506,6 +511,142 @@ describe('TiffUpload', () => {
       'Download failed safely.',
     )
     expect(findButton(container, 'Download PNG')?.disabled).toBe(false)
+  })
+
+  it('exports the full stack with the current component without changing T/Z/C', async () => {
+    const uploadFile: UploadTiffFunction = vi.fn().mockResolvedValue(
+      successfulUpload('rgb.tif', {
+        shape: [2, 3, 4, 5, 7, 3],
+        axes: 'TZCYXS',
+        dtype: 'uint8',
+        is_rgb: true,
+        sample_count: 3,
+        rgb_components: ['red', 'green', 'blue'],
+      }),
+    )
+    const downloadZip: DownloadTiffZipFunction = vi.fn().mockResolvedValue({
+      blob: new Blob(['zip'], { type: 'application/zip' }),
+      filename: 'rgb_stack_G.zip',
+    })
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined)
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} downloadZip={downloadZip} />,
+      ),
+    )
+    await selectAndUpload(container)
+    await act(async () => changeSelect(getSelectByLabel(container, 'Time')!, 1))
+    await act(async () => changeSelect(getSelectByLabel(container, 'Z')!, 2))
+    await act(async () =>
+      changeSelect(getSelectByLabel(container, 'Channel')!, 3),
+    )
+    await act(async () =>
+      changeSelectValue(
+        getSelectByLabel(container, 'Color component')!,
+        'green',
+      ),
+    )
+    vi.mocked(URL.createObjectURL).mockReturnValueOnce('blob:zip-download')
+
+    await act(async () => findButton(container, 'Export Stack as ZIP')?.click())
+
+    expect(downloadZip).toHaveBeenCalledOnce()
+    expect(downloadZip).toHaveBeenCalledWith(
+      '95ed59ce-198b-4f17-89da-74e17d457df3',
+      'green',
+      expect.any(AbortSignal),
+    )
+    const anchor = anchorClick.mock.instances[0] as unknown as HTMLAnchorElement
+    expect(anchor.download).toBe('rgb_stack_G.zip')
+    expect(anchor.href).toBe('blob:zip-download')
+    expect(document.body.contains(anchor)).toBe(false)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:zip-download')
+    expect(getSelectByLabel(container, 'Time')?.value).toBe('1')
+    expect(getSelectByLabel(container, 'Z')?.value).toBe('2')
+    expect(getSelectByLabel(container, 'Channel')?.value).toBe('3')
+    expect(getSelectByLabel(container, 'Color component')?.value).toBe('green')
+  })
+
+  it('shows ZIP exporting state, prevents duplicates, and reports errors', async () => {
+    let rejectDownload: ((error: unknown) => void) | undefined
+    const pendingDownload = new Promise<never>((_resolve, reject) => {
+      rejectDownload = reject
+    })
+    const downloadZip: DownloadTiffZipFunction = vi
+      .fn()
+      .mockReturnValue(pendingDownload)
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} downloadZip={downloadZip} />,
+      ),
+    )
+    await selectAndUpload(container)
+
+    act(() => findButton(container, 'Export Stack as ZIP')?.click())
+    const exportingButton = findButton(container, 'Exporting…')
+    expect(exportingButton?.disabled).toBe(true)
+    act(() => exportingButton?.click())
+    expect(downloadZip).toHaveBeenCalledOnce()
+
+    await act(async () =>
+      rejectDownload?.(
+        new ApiClientError('PROCESSING_ERROR', 'ZIP export failed safely.'),
+      ),
+    )
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'ZIP export failed safely.',
+    )
+    expect(findButton(container, 'Export Stack as ZIP')?.disabled).toBe(false)
+  })
+
+  it('aborts ZIP export on replacement, Reset, Clear, and unmount', async () => {
+    const signals: AbortSignal[] = []
+    const downloadZip: DownloadTiffZipFunction = vi.fn(
+      (_fileId, _component, signal) => {
+        if (signal) {
+          signals.push(signal)
+        }
+        return new Promise<DownloadedZip>(() => undefined)
+      },
+    )
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} downloadZip={downloadZip} />,
+      ),
+    )
+    await selectAndUpload(container)
+
+    act(() => findButton(container, 'Export Stack as ZIP')?.click())
+    act(() =>
+      dispatchDragEvent(getDropzone(container), 'drop', [
+        createFile('replacement.tif'),
+      ]),
+    )
+    expect(signals.at(-1)?.aborted).toBe(true)
+
+    await act(async () => findButton(container, 'Upload TIFF')?.click())
+    act(() => findButton(container, 'Export Stack as ZIP')?.click())
+    act(() => findButton(container, 'Reset')?.click())
+    expect(signals.at(-1)?.aborted).toBe(true)
+
+    await selectAndUpload(container, 'after-reset.tif')
+    act(() => findButton(container, 'Export Stack as ZIP')?.click())
+    act(() => findButton(container, 'Clear')?.click())
+    expect(signals.at(-1)?.aborted).toBe(true)
+
+    await selectAndUpload(container, 'before-unmount.tif')
+    act(() => findButton(container, 'Export Stack as ZIP')?.click())
+    act(() => root.unmount())
+    expect(signals.at(-1)?.aborted).toBe(true)
+    root = createRoot(container)
   })
 
   it('clears download errors and aborts work for replacement, Reset, and Clear', async () => {
