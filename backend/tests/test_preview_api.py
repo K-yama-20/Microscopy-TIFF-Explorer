@@ -199,6 +199,42 @@ def test_previews_uint16_rgb_composite_and_isolated_component(
     assert red_array.dtype == np.uint8
 
 
+def test_preview_calls_shared_normalization_once_with_canonical_plane(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    array = np.empty((3, 5, 7), dtype=np.uint16)
+    array[0] = 100
+    array[1] = 1000
+    array[2] = 5000
+    calls: list[np.ndarray] = []
+    normalized_result = np.arange(5 * 7 * 3, dtype=np.uint8).reshape(5, 7, 3)
+
+    def normalization_spy(image: np.ndarray) -> np.ndarray:
+        calls.append(image.copy())
+        return normalized_result
+
+    monkeypatch.setattr("app.api.preview.normalize_to_uint8", normalization_spy)
+
+    _, preview = upload_and_preview(
+        make_app(tmp_path),
+        make_tiff_bytes(
+            array,
+            "SYX",
+            photometric="rgb",
+            planarconfig="separate",
+        ),
+    )
+
+    assert preview.status_code == 200
+    assert len(calls) == 1
+    np.testing.assert_array_equal(calls[0], np.transpose(array, (1, 2, 0)))
+    assert calls[0].shape == (5, 7, 3)
+    assert calls[0].dtype == np.uint16
+    _, decoded = png_array(preview)
+    np.testing.assert_array_equal(decoded, normalized_result)
+
+
 @pytest.mark.parametrize("query", ["?t=-1", "?z=1", "?c=1"])
 def test_rejects_invalid_dimension_indices(tmp_path: Path, query: str) -> None:
     _, response = upload_and_preview(
