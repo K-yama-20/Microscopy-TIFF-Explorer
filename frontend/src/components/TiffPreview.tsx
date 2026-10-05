@@ -9,7 +9,11 @@ interface TiffPreviewProps {
 
 export function TiffPreview({ filename, component, state }: TiffPreviewProps) {
   return (
-    <section className="preview-panel" aria-labelledby="preview-title">
+    <section
+      className="preview-panel workflow-section"
+      aria-labelledby="preview-title"
+      aria-busy={state.status === 'loading'}
+    >
       <h3 id="preview-title">Image preview</h3>
       {state.status === 'loading' && (
         <p className="preview-status" role="status">
@@ -22,11 +26,13 @@ export function TiffPreview({ filename, component, state }: TiffPreviewProps) {
         </p>
       )}
       {state.status === 'success' && (
-        <img
-          className="preview-image"
-          src={state.objectUrl}
-          alt={`${component === 'composite' ? 'Composite' : component} preview of ${filename}`}
-        />
+        <div className="preview-frame">
+          <img
+            className="preview-image"
+            src={state.objectUrl}
+            alt={`${component === 'composite' ? 'Composite' : component} preview of ${filename}`}
+          />
+        </div>
       )}
     </section>
   )

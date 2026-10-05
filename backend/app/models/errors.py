@@ -20,6 +20,15 @@ class FileNotFoundError(ApiServiceError):
         )
 
 
+class ProcessingError(ApiServiceError):
+    def __init__(self, message: str) -> None:
+        super().__init__(
+            code="PROCESSING_ERROR",
+            message=message,
+            status_code=500,
+        )
+
+
 class ErrorDetail(BaseModel):
     code: str
     message: str

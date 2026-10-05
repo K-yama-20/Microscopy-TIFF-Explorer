@@ -1,182 +1,275 @@
 # Microscopy TIFF Explorer
 
-Microscopy TIFF Explorer is a browser-based tool for inspecting multidimensional microscopy TIFF files and exporting selected image planes.
+Microscopy TIFF Explorer is a browser-based MVP for inspecting multidimensional
+microscopy TIFF files. It uploads one TIFF to temporary server storage, shows
+primary-series metadata, lets the user choose microscopy Time/Z/Channel and RGB
+color components, previews the selected plane, downloads it as PNG, and exports
+the complete T/Z/C stack as ZIP.
 
-The MVP will let users upload `.tif` or `.tiff` files up to 100 MB, inspect metadata, select T/Z/C positions, preview 8-bit and 16-bit images, download a selected plane as PNG, and export multiple planes as ZIP.
+There is no account, database, upload history, or persistent file storage.
 
-## Stack
+## Features
 
-- Frontend: React, TypeScript, Vite
-- Backend: Python, FastAPI, tifffile, imagecodecs, NumPy, Pillow
-- Storage: temporary files only; no database or persistent uploads
-- Deployment: Vercel for the frontend and a Python-compatible service for the backend
+- Independent frontend and backend validation for `.tif` and `.tiff` files up
+  to 100 MB by default.
+- Primary-series metadata: source shape and axes, dtype, width, height, T/Z/C
+  counts, series count, RGB status, sample count, and RGB component names.
+- Zero-based T, Z, and microscopy Channel (`C`) selectors when those axes exist.
+- Metadata-confirmed RGB in interleaved `YXS`, planar `SYX`, and compatible
+  T/Z/C combinations.
+- RGB composite plus Red, Green, and Blue grayscale component views.
+- Matching preview and PNG/ZIP output through shared extraction,
+  canonicalization, normalization, and PNG encoding services.
+- Automatic temporary-upload expiration after 30 minutes by default.
+- Stable, structured API errors without server paths or stack traces.
+- Keyboard-accessible controls, announced loading/error states, responsive
+  layout, constrained image previews, and reduced-motion support.
+
+## Supported data model
+
+The required non-RGB layouts are `YX`, `ZYX`, `CYX`, `ZCYX`, and `TZCYX`.
+Other unambiguous permutations using `T`, `Z`, `C`, `Y`, and `X` can also be
+processed. Pixel dtype must be `uint8` or `uint16`.
+
+`C` and `S` have different meanings:
+
+- `C` is a microscopy acquisition channel and is independently selectable.
+- `S` is the grouped Red/Green/Blue sample axis inside one RGB image plane.
+
+An RGB TIFF is accepted only when TIFF metadata reports RGB photometric data,
+three samples per pixel, and an `S` axis of length three. Both interleaved `YXS`
+and planar `SYX` are supported. A TIFF containing both `C` and `S` keeps them
+independent; `S` does not increase the displayed Channel count or ZIP entry
+count.
+
+Upload metadata preserves the source axes order. Only an extracted result is
+canonicalized: RGB composite becomes `YXS`, while grayscale and an isolated
+R/G/B component become `YX`.
+
+`uint8` values are preserved. `uint16` is converted for browser display and
+8-bit export with 1st/99th percentile clipping. RGB composite uses one shared
+pair of bounds across all samples so relative color balance is retained; an
+isolated component uses its own bounds. Constant images safely produce a
+uniform image.
 
 ## Local development
 
 ### Prerequisites
 
-- Node.js 20.19+ or 22.12+ with pnpm 10+
+- Node.js 24.x
+- pnpm 10+
 - Python 3.11+
-
-### Frontend
-
-```powershell
-cd frontend
-pnpm install
-pnpm dev
-```
-
-Open `http://localhost:5173`. To use a different API origin, copy
-`frontend/.env.example` to `frontend/.env` and update `VITE_API_BASE_URL`.
 
 ### Backend
 
-From the repository root on Windows PowerShell:
+From the repository root in Windows PowerShell:
 
 ```powershell
 python -m venv backend/.venv
 backend/.venv/Scripts/python -m pip install -r backend/requirements-dev.txt
+$env:ALLOWED_ORIGINS = "http://localhost:5173"
+$env:MAX_UPLOAD_SIZE_MB = "100"
+$env:TEMP_FILE_TTL_MINUTES = "30"
 backend/.venv/Scripts/python -m uvicorn app.main:app --app-dir backend --reload --port 8000
 ```
 
-On macOS or Linux, replace `backend/.venv/Scripts/python` with
-`backend/.venv/bin/python`. The API is available at `http://localhost:8000`, and
-`GET http://localhost:8000/health` returns `{ "status": "ok" }`.
+On macOS or Linux, use `backend/.venv/bin/python`. `backend/.env.example` is a
+configuration reference; the application intentionally reads process
+environment variables and does not automatically load that file.
 
-The frontend uploads valid files to `POST /api/tiff/upload` as multipart form
-data. A successful upload returns HTTP `201` with an opaque file identifier
-and normalized metadata from the primary TIFF series:
+Verify readiness at `GET http://localhost:8000/health`.
+
+### Frontend
+
+In another terminal:
+
+```powershell
+cd frontend
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+Open `http://localhost:5173`. The default backend is
+`http://localhost:8000`. To override it, copy `frontend/.env.example` to
+`frontend/.env`, set `VITE_API_BASE_URL`, and restart Vite.
+
+### Use the application
+
+1. Choose or drag in a supported TIFF.
+2. Select **Upload TIFF** and review primary-series metadata.
+3. Choose available Time, Z, and microscopy Channel positions.
+4. For an RGB TIFF, separately choose RGB composite, Red, Green, or Blue.
+5. Review the live preview.
+6. Select **Download PNG** for the current plane.
+7. Select **Export Stack as ZIP** for all T/Z/C planes in the current RGB
+   component mode.
+
+Replacing, clearing, or resetting a file restores T/Z/C to zero, restores RGB
+mode to composite, aborts stale browser requests, and releases browser object
+URLs.
+
+## API
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Deployment readiness check |
+| `POST` | `/api/tiff/upload` | Validate, temporarily store, and inspect a TIFF |
+| `GET` | `/api/tiff/{file_id}/preview?t=0&z=0&c=0&component=composite` | Preview one plane as PNG |
+| `GET` | `/api/tiff/{file_id}/export/png?t=0&z=0&c=0&component=composite` | Download one plane as PNG |
+| `GET` | `/api/tiff/{file_id}/export/zip?component=composite` | Download all T/Z/C planes as ZIP |
+
+`component` accepts `composite`, `red`, `green`, or `blue`. Omission is
+backward-compatible and means `composite`. R/G/B is invalid for non-RGB data.
+
+All API errors use this envelope:
 
 ```json
 {
-  "file_id": "95ed59ce-198b-4f17-89da-74e17d457df3",
-  "filename": "sample.ome.tif",
-  "metadata": {
-    "shape": [2, 10, 3, 512, 512],
-    "axes": "TZCYX",
-    "dtype": "uint16",
-    "width": 512,
-    "height": 512,
-    "time_points": 2,
-    "z_slices": 10,
-    "channels": 3,
-    "series_count": 1,
-    "is_rgb": false,
-    "sample_count": 1,
-    "rgb_components": []
+  "error": {
+    "code": "INVALID_TIFF",
+    "message": "The TIFF file could not be interpreted."
   }
 }
 ```
 
-The backend reads the upload in chunks, enforces its own extension and size
-checks, stores the file as `<uuid>.tif` or `<uuid>.tiff`, and parses metadata
-without loading the full pixel array. Invalid TIFFs and files with unsupported
-data types or ambiguous axes return structured errors and are removed. When
-`TEMP_STORAGE_DIR` is unset, files are written beneath the operating system's
-temporary directory in `microscopy-tiff-explorer/`. Upload metadata is kept in
-memory for later processing steps; no database or permanent storage is used.
-Common TIFF compression schemes supported by `imagecodecs`, including LZW, are
-decoded when a preview reads the selected image plane.
+| Code | Meaning |
+| --- | --- |
+| `INVALID_FILE_TYPE` | Filename extension is not `.tif` or `.tiff` |
+| `FILE_TOO_LARGE` | Upload exceeds the configured maximum |
+| `INVALID_TIFF` | Content cannot be parsed as TIFF |
+| `UNSUPPORTED_DTYPE` | Pixel type is not `uint8` or `uint16` |
+| `UNSUPPORTED_AXES` | Axes or sample model is missing, ambiguous, or unsupported |
+| `FILE_NOT_FOUND` | `file_id` is unknown, expired, deleted, or unavailable |
+| `INVALID_DIMENSION_INDEX` | T, Z, or C is outside the available range |
+| `INVALID_RGB_COMPONENT` | Component is unknown or not valid for this image |
+| `PROCESSING_ERROR` | Preview/export or another unexpected operation failed safely |
+| `INVALID_REQUEST` | Required input is missing or a request parameter is malformed |
 
-After upload, the frontend requests the selected plane from:
+## Runtime configuration
 
-```http
-GET /api/tiff/{file_id}/preview?t=0&z=0&c=0&component=composite
-```
+| Variable | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `VITE_API_BASE_URL` | URL string | `http://localhost:8000` | Frontend build-time backend origin; omit trailing slash |
+| `ALLOWED_ORIGINS` | comma-separated origins | local Vite origins | Exact browser origins only; wildcard is rejected and trailing slashes are normalized |
+| `MAX_UPLOAD_SIZE_MB` | positive integer | `100` | Backend upload limit; frontend currently validates against the same MVP limit |
+| `TEMP_FILE_TTL_MINUTES` | positive number | `30` | Temporary TIFF lifetime |
+| `TEMP_STORAGE_DIR` | directory path | OS temp + `microscopy-tiff-explorer` | Must be ephemeral in production |
 
-The preview response is an uncached `image/png`. It refreshes when the Time,
-Z, microscopy Channel, or RGB Color component selection changes. Supported
-Color component values are `composite`, `red`, `green`, and `blue`; composite
-is the default and the individual components are returned as grayscale.
+Invalid numeric configuration fails startup with a clear configuration error.
+Do not put credentials in these files or variables; the application needs no
+secrets.
 
-The **Download PNG** button exports that same current selection from:
+## Temporary-file lifecycle
 
-```http
-GET /api/tiff/{file_id}/export/png?t=0&z=0&c=0&component=composite
-```
+Uploads are stored as server-generated UUID filenames. The original filename is
+display metadata only and never becomes a storage path. Each in-memory record
+stores its creation time. Cleanup runs on new uploads and existing-file API
+access, expires records after `TEMP_FILE_TTL_MINUTES`, and removes their TIFFs.
 
-The response is an uncached `image/png` attachment. Preview and export use the
-same plane extraction, canonical `YX`/`YXS` conversion, uint8 normalization,
-and PNG encoding pipeline, so their pixels match for an identical selection.
-Export filenames contain zero-based, zero-padded T/Z/C indices. Non-RGB images
-use names such as `sample_T000_Z012_C002.png`; RGB composite uses `_RGB`, while
-isolated Red, Green, and Blue grayscale exports use `_R`, `_G`, and `_B`. The
-source basename loses its final `.tif`/`.tiff` extension, and unsafe header
-characters are replaced before the name is used in `Content-Disposition`.
+Preview and export acquire a short-lived lease, so another request cannot delete
+the source TIFF while it is being read. Once expired, new requests receive
+`FILE_NOT_FOUND`; an already-running request completes and the file is removed
+when its lease ends. On startup, cleanup also removes old UUID-named `.tif` and
+`.tiff` files left by an earlier process, while ignoring unrelated files.
 
-The **Export Stack as ZIP** button exports every available T/Z/C position for
-the current Color component from:
+PNG output is generated in memory. ZIP output uses a spooled temporary stream
+that is closed after normal delivery, generation failure, or interrupted
+streaming. No export artifact is retained.
 
-```http
-GET /api/tiff/{file_id}/export/zip?component=composite
-```
-
-The component defaults to `composite`; RGB files can instead export only the
-Red, Green, or Blue grayscale component across the stack. The RGB sample axis
-`S` never increases the number of entries, while a microscopy Channel axis `C`
-is enumerated independently. Archive entries use deterministic T/Z/C names and
-the same extraction, normalization, and PNG encoding pipeline as preview and
-single-plane export. ZIP data is written to a spooled temporary stream and is
-closed after response delivery rather than retained as a permanent file.
-
-Metadata-confirmed RGB TIFFs support both interleaved `YXS` and planar `SYX`
-layouts, plus compatible T/Z/C combinations. The `C` axis is a microscopy
-Channel and remains independently selectable, while `S` contains the three
-grouped Red/Green/Blue samples and is never added to the Channel count. RGB
-recognition requires RGB photometric metadata, `SamplesPerPixel=3`, and a
-three-element `S` axis. RGBA, non-RGB `S` axes, and other sample models are not
-supported in MVP v1.
-
-Backend runtime settings are supplied as environment variables:
+## Quality checks
 
 ```powershell
-$env:TEMP_STORAGE_DIR = "C:\path\to\temporary-storage"
-$env:MAX_UPLOAD_SIZE_MB = "100"
-$env:ALLOWED_ORIGINS = "http://localhost:5173"
-```
+cd backend
+.venv/Scripts/python -m ruff format --check .
+.venv/Scripts/python -m ruff check .
+.venv/Scripts/python -m pytest
 
-`ALLOWED_ORIGINS` accepts a comma-separated list. Its default is limited to the
-local Vite origins `http://localhost:5173` and `http://127.0.0.1:5173`.
-
-### Quality checks
-
-```powershell
-cd frontend
+cd ../frontend
 pnpm format:check
 pnpm lint
 pnpm test
 pnpm build
 
-cd ../backend
-.venv/Scripts/python -m ruff format --check .
-.venv/Scripts/python -m ruff check .
-.venv/Scripts/python -m pytest
+cd ..
+git diff --check
+git status --short
 ```
+
+Small generated/manual fixtures are documented in `manual-test-data/README.md`.
+
+## Deployment preparation
+
+The intended split is Vercel for the static frontend and Render for the FastAPI
+backend. No database or persistent disk is used.
+
+### Backend on Render
+
+`render.yaml` defines a free Python web service rooted at `backend/`, installs
+`requirements.txt`, starts `app.main:app` with Uvicorn on Render's `$PORT`, and
+checks `/health`. Import the repository as a Render Blueprint, then provide the
+exact deployed Vercel origin for `ALLOWED_ORIGINS` when prompted. Do not use `*`
+and do not append `/`. The remaining defaults are declared in the Blueprint,
+including `/tmp/microscopy-tiff-explorer` as ephemeral storage.
+
+The configuration follows Render's current
+[Blueprint specification](https://render.com/docs/blueprint-spec),
+[FastAPI deployment guide](https://render.com/docs/deploy-fastapi), and
+[health-check documentation](https://render.com/docs/health-checks).
+
+### Frontend on Vercel
+
+Create a Vercel project for this repository and set **Root Directory** to
+`frontend/`. Vercel detects Vite; `frontend/vercel.json` records the install,
+build, and `dist` output settings. Set `VITE_API_BASE_URL` to the deployed Render
+origin without a trailing slash, then deploy again so the build embeds it.
+
+This follows Vercel's current
+[monorepo Root Directory guidance](https://vercel.com/docs/monorepos) and
+[`vercel.json` reference](https://vercel.com/docs/project-configuration/vercel-json).
+
+After both services are live, verify `/health`, exact-origin CORS (including
+exposed `Content-Disposition`), non-RGB and RGB upload/metadata/selectors,
+preview, PNG, ZIP, and expiration behavior. Public deployment is not represented
+as complete until real URLs and those checks exist.
+
+## Security and privacy boundaries
+
+- The server independently validates extension, size, TIFF metadata, dtype,
+  axes, sample model, indices, and component.
+- Opaque UUIDs control storage names; client filenames are sanitized for display
+  and download headers.
+- API responses do not expose filesystem paths, exception classes, or stack
+  traces. Unexpected details remain server-side logs.
+- CORS is restricted to configured exact origins and exposes only the download
+  filename header needed by the frontend.
+- Processing is temporary, unauthenticated, and not appropriate for data that
+  requires user-level access control or durable retention.
+
+## Current limitations
+
+- Only the primary TIFF series is selectable.
+- Only TIFF and `uint8`/`uint16` pixels are supported.
+- RGBA, alpha, non-RGB `S`, and sample models other than exactly three RGB
+  samples are unsupported.
+- There is no authentication, database, persistent storage, history,
+  annotation, image editing, or AI inference.
+- In-memory `file_id` mappings are lost on server restart; an old UUID-named TIFF
+  can be cleaned later but cannot be used after restart.
+- Provider request-size, timeout, memory, CPU, and ephemeral-storage limits can
+  be lower than the application's 100 MB product limit. Large or highly
+  compressed TIFFs can therefore fail in hosted environments.
+- Free hosting can sleep, cold-start, change limits, or be unavailable; check
+  current provider terms before deployment.
 
 ## Repository structure
 
 ```text
 Microscopy-TIFF-Explorer/
-├── frontend/
-├── backend/
-├── docs/
-│   ├── REQUIREMENTS.md
-│   ├── ARCHITECTURE.md
-│   └── ROADMAP.md
+├── frontend/          # React, TypeScript, Vite
+├── backend/           # FastAPI, tifffile, NumPy, Pillow
+├── docs/              # requirements, architecture, roadmap
+├── manual-test-data/  # small regression fixtures
+├── render.yaml        # Render backend Blueprint
 ├── AGENTS.md
-├── README.md
-└── .gitignore
+└── README.md
 ```
-
-Implementation is organized into ten roadmap steps. See
-[`docs/ROADMAP.md`](docs/ROADMAP.md). The frontend currently supports local TIFF
-selection, pre-upload validation, temporary upload through the FastAPI backend,
-display of normalized primary-series TIFF metadata, and zero-based T/Z/C
-selection for axes present in the uploaded image. It now displays live PNG
-previews, a separate RGB Color component selector when applicable, and a PNG
-download action for the current selection, plus ZIP export of the complete
-T/Z/C stack for the current Color component. The
-backend currently supports `uint8` and `uint16` data with unambiguous
-combinations of the T, Z, C, Y, X, and metadata-confirmed RGB S axes, including
-`YX`, `ZYX`, `CYX`, `ZCYX`, `TZCYX`, `YXS`, and `SYX`.
-

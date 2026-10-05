@@ -1,7 +1,11 @@
+import logging
+
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHttpException
 
 from app.api.png_export import router as png_export_router
 from app.api.preview import router as preview_router
@@ -11,6 +15,8 @@ from app.core.config import Settings
 from app.models.errors import ApiServiceError
 from app.models.health import HealthResponse
 from app.services.temporary_files import TemporaryFileManager
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -24,6 +30,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.temporary_file_manager = TemporaryFileManager(
         storage_dir=resolved_settings.upload_storage_dir,
         max_upload_size_bytes=resolved_settings.max_upload_size_bytes,
+        ttl_minutes=resolved_settings.temp_file_ttl_minutes,
     )
 
     application.add_middleware(
@@ -36,7 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     @application.exception_handler(ApiServiceError)
-    async def handle_upload_error(
+    async def handle_service_error(
         _request: Request, error: ApiServiceError
     ) -> JSONResponse:
         return JSONResponse(
@@ -53,7 +60,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content={
                 "error": {
                     "code": "INVALID_REQUEST",
-                    "message": "A TIFF file is required for this request.",
+                    "message": "The request contains invalid or missing parameters.",
+                }
+            },
+        )
+
+    @application.exception_handler(StarletteHttpException)
+    async def handle_http_error(
+        request: Request, error: StarletteHttpException
+    ) -> JSONResponse:
+        if not request.url.path.startswith("/api/"):
+            return await http_exception_handler(request, error)
+        return JSONResponse(
+            status_code=error.status_code,
+            content={
+                "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "The requested API operation is not available.",
+                }
+            },
+        )
+
+    @application.exception_handler(Exception)
+    async def handle_unexpected_error(
+        request: Request, error: Exception
+    ) -> JSONResponse:
+        logger.exception(
+            "Unhandled API error",
+            exc_info=(type(error), error, error.__traceback__),
+            extra={"method": request.method, "path": request.url.path},
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "PROCESSING_ERROR",
+                    "message": "The request could not be processed. Please try again.",
                 }
             },
         )
@@ -62,13 +104,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(preview_router)
     application.include_router(png_export_router)
     application.include_router(zip_export_router)
+
+    @application.get("/health", response_model=HealthResponse, tags=["system"])
+    async def health() -> HealthResponse:
+        """Report whether the API process is ready to receive requests."""
+        return HealthResponse(status="ok")
+
     return application
 
 
 app = create_app()
-
-
-@app.get("/health", response_model=HealthResponse, tags=["system"])
-async def health() -> HealthResponse:
-    """Report whether the API process is ready to receive requests."""
-    return HealthResponse(status="ok")

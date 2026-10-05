@@ -47,7 +47,7 @@ export function useTiffZipDownload(
     activeRequest.current?.controller.abort()
     activeRequest.current = undefined
     setState(IDLE_DOWNLOAD_STATE)
-  }, [fileId])
+  }, [component, fileId])
 
   useEffect(
     () => () => {

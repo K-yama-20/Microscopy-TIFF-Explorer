@@ -159,6 +159,12 @@ describe('TiffUpload', () => {
     vi.restoreAllMocks()
   })
 
+  it('uses a workspace label without presenting the UI as a step-based wizard', () => {
+    expect(container.textContent).toContain('TIFF workspace')
+    expect(container.textContent).toContain('Upload a microscopy TIFF')
+    expect(container.textContent).not.toContain('Step 1 of 3')
+  })
+
   it('shows and clears the visual dragging state', () => {
     const dropzone = getDropzone(container)
 
@@ -602,6 +608,52 @@ describe('TiffUpload', () => {
       'ZIP export failed safely.',
     )
     expect(findButton(container, 'Export Stack as ZIP')?.disabled).toBe(false)
+  })
+
+  it('aborts in-progress exports when their active selection changes', async () => {
+    const pngSignals: AbortSignal[] = []
+    const zipSignals: AbortSignal[] = []
+    const downloadPng: DownloadTiffPngFunction = vi.fn(
+      (_fileId, _selection, signal) => {
+        if (signal) pngSignals.push(signal)
+        return new Promise<DownloadedPng>(() => undefined)
+      },
+    )
+    const downloadZip: DownloadTiffZipFunction = vi.fn(
+      (_fileId, _component, signal) => {
+        if (signal) zipSignals.push(signal)
+        return new Promise<DownloadedZip>(() => undefined)
+      },
+    )
+    const uploadFile: UploadTiffFunction = vi.fn().mockResolvedValue(
+      successfulUpload('rgb.tif', {
+        shape: [2, 3, 5, 7, 3],
+        axes: 'TZYXS',
+        is_rgb: true,
+        sample_count: 3,
+        rgb_components: ['red', 'green', 'blue'],
+      }),
+    )
+    act(() =>
+      root.render(
+        <TiffUpload
+          uploadFile={uploadFile}
+          downloadPng={downloadPng}
+          downloadZip={downloadZip}
+        />,
+      ),
+    )
+    await selectAndUpload(container)
+
+    act(() => findButton(container, 'Download PNG')?.click())
+    await act(async () => changeSelect(getSelectByLabel(container, 'Z')!, 1))
+    expect(pngSignals.at(-1)?.aborted).toBe(true)
+
+    act(() => findButton(container, 'Export Stack as ZIP')?.click())
+    await act(async () =>
+      changeSelectValue(getSelectByLabel(container, 'Color component')!, 'red'),
+    )
+    expect(zipSignals.at(-1)?.aborted).toBe(true)
   })
 
   it('aborts ZIP export on replacement, Reset, Clear, and unmount', async () => {

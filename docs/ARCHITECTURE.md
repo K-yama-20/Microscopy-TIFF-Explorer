@@ -61,6 +61,7 @@ Microscopy-TIFF-Explorer/
 │   ├── REQUIREMENTS.md
 │   ├── ARCHITECTURE.md
 │   └── ROADMAP.md
+├── render.yaml
 ├── AGENTS.md
 ├── README.md
 └── .gitignore
@@ -233,17 +234,28 @@ An upload is stored under a generated identifier, for example:
 <temp-root>/microscopy-tiff-explorer/<uuid>.tif
 ```
 
-The original filename is metadata only and never controls a filesystem path. Temporary records should track the storage path, safe display filename, and timestamps.
+The original filename is metadata only and never controls a filesystem path.
+Each in-memory record tracks the storage path, safe display filename, byte size,
+and UTC creation time.
 
 ## 19. Cleanup Policy
 
-The initial TTL is 30 minutes. Cleanup must not depend exclusively on the browser calling a delete endpoint. The backend should remove expired uploads and generated artifacts through request-time cleanup, a background task, or a platform-appropriate scheduled mechanism.
+The default TTL is 30 minutes and is configured by
+`TEMP_FILE_TTL_MINUTES`. Request-time cleanup runs when a new upload starts and
+when an existing upload is acquired. Expired records are removed from memory and
+their TIFFs are deleted without requiring a browser `DELETE` call.
 
-An optional endpoint may support eager cleanup:
+Preview and export obtain a reference-counted lease before reading a TIFF.
+Cleanup marks an in-use expired record unavailable to new requests but defers
+filesystem deletion until the final lease is released. This prevents concurrent
+cleanup from removing a file during processing. Manager startup scans only
+UUID-named `.tif` and `.tiff` files and deletes expired leftovers from an earlier
+process; unrelated files are ignored. Delete failures are logged and do not stop
+the remaining cleanup work.
 
-```http
-DELETE /api/tiff/{file_id}
-```
+PNG bytes live in memory. ZIP creation uses `SpooledTemporaryFile`; archive
+creation and streaming both close the stream on success, failure, or interrupted
+delivery.
 
 ## 20. Error Contract
 
@@ -258,9 +270,14 @@ Errors should be stable and machine-readable:
 }
 ```
 
-Required codes include `INVALID_FILE_TYPE`, `FILE_TOO_LARGE`, `INVALID_TIFF`, `UNSUPPORTED_DTYPE`, `UNSUPPORTED_AXES`, `FILE_NOT_FOUND`, `INVALID_DIMENSION_INDEX`, `INVALID_RGB_COMPONENT`, and `PROCESSING_ERROR`.
+Required codes include `INVALID_FILE_TYPE`, `FILE_TOO_LARGE`, `INVALID_TIFF`,
+`UNSUPPORTED_DTYPE`, `UNSUPPORTED_AXES`, `FILE_NOT_FOUND`,
+`INVALID_DIMENSION_INDEX`, `INVALID_RGB_COMPONENT`, `PROCESSING_ERROR`, and
+`INVALID_REQUEST`.
 
-Responses must not expose stack traces or server paths.
+Service, validation, HTTP routing, and unexpected API failures use the same
+envelope. Unexpected details are logged server-side; responses do not expose
+stack traces, exception classes, or server paths.
 
 ## 21. Validation and Security
 
@@ -292,7 +309,11 @@ Local development should allow the Vite origin, typically `http://localhost:5173
 
 ## 24. Performance Boundaries
 
-The 100 MB upload cap is a product and operational safeguard. Prefer lazy TIFF access or memory mapping where compatible, avoid unnecessary full-array copies, and generate previews one plane at a time. Whole-slide and multi-gigabyte processing are outside MVP v1.
+The 100 MB upload cap is a product and operational safeguard. Metadata parsing
+does not load the pixel array. Preview and export currently load the primary
+series before selecting planes, so provider memory and timeout limits can be
+stricter than the upload cap. Whole-slide and multi-gigabyte processing are
+outside MVP v1.
 
 ## 25. Testing Strategy
 
@@ -322,15 +343,25 @@ Frontend and backend run independently so each can be tested and deployed separa
 
 ## 27. Deployment
 
-The frontend is deployed as a static Vite build to Vercel. The backend is deployed to Render, Railway, Google Cloud Run, or an equivalent Python host with adequate request size, timeout, memory, and ephemeral storage configuration.
+Deployment is prepared but not represented as publicly completed. The frontend
+is configured as a static Vite build for a Vercel project rooted at `frontend/`.
+The backend `render.yaml` defines a Render Python web service rooted at
+`backend/`, starts Uvicorn with the provider's `PORT`, uses `/health`, and has no
+persistent disk or database. Production requires an exact Vercel origin in
+`ALLOWED_ORIGINS` and the Render origin in `VITE_API_BASE_URL`.
 
 ## 28. Observability
 
-Use structured server logs for request IDs, error codes, timing, and cleanup outcomes. Never log image content or sensitive metadata unnecessarily. A lightweight health endpoint supports deployment checks.
+Unexpected processing and cleanup failures are logged server-side without
+logging image content. A lightweight health endpoint supports deployment checks.
 
 ## 29. Accessibility and UX
 
-The desktop-first UI should have labeled controls, keyboard-accessible file selection and buttons, readable loading/error states, and a preview constrained to the available viewport without silently changing selection.
+The desktop-first UI has labeled controls, keyboard-accessible file selection
+and buttons, `status`/`alert` announcements, visible focus styles, explicit
+microscopy Channel versus RGB component help, responsive small-screen layouts,
+and a contained preview. Replacing or clearing a file aborts stale operations,
+resets selection, and releases object URLs.
 
 ## 30. No Database in MVP
 

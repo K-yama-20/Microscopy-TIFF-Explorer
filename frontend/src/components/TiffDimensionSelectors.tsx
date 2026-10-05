@@ -68,7 +68,10 @@ export function TiffDimensionSelectors({
 
   return (
     <fieldset className="dimension-selectors">
-      <legend>Image plane</legend>
+      <legend>Microscopy dimensions</legend>
+      <p className="selector-help">
+        Choose the time point, Z slice, and acquisition channel (C).
+      </p>
       <div className="dimension-selectors__controls">
         {hasTime && (
           <DimensionSelect
