@@ -68,6 +68,10 @@ export function TiffMetadataPanel({ upload }: TiffMetadataPanelProps) {
           </dd>
         </div>
       </dl>
+      <p className="metadata-help">
+        Channels are microscopy acquisitions on axis C. RGB components are
+        grouped color samples on axis S.
+      </p>
       <code className="file-id">File ID: {fileId}</code>
     </section>
   )

@@ -249,6 +249,16 @@ Turn the prototype into a usable public MVP.
 - Production frontend/backend communication and CORS work.
 - README documents the application and local setup.
 
+### Implementation Status
+
+Error contracts, 30-minute request-time TTL cleanup, in-use file leases,
+startup orphan cleanup, UI/accessibility polish, regression tests, README
+documentation, a Render Blueprint, and Vercel build configuration are
+implemented on the Step 10 feature branch. Local quality checks must pass before
+merge. Public deployment and production CORS/workflow verification remain
+pending until the branch is reviewed, committed, pushed, and linked to uniquely
+identified provider projects without paid resources.
+
 ## Suggested One-Week Schedule
 
 ```text

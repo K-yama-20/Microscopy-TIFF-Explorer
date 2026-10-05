@@ -3,22 +3,18 @@ from uuid import UUID
 
 from fastapi import APIRouter, Request, Response
 
-from app.models.errors import ApiServiceError, ErrorResponse, FileNotFoundError
+from app.models.errors import (
+    ApiServiceError,
+    ErrorResponse,
+    FileNotFoundError,
+    ProcessingError,
+)
 from app.services.plane_rendering import render_tiff_plane_png
 from app.services.temporary_files import TemporaryFileManager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tiff", tags=["tiff"])
-
-
-class ProcessingError(ApiServiceError):
-    def __init__(self) -> None:
-        super().__init__(
-            code="PROCESSING_ERROR",
-            message="The image preview could not be generated.",
-            status_code=500,
-        )
 
 
 @router.get(
@@ -45,23 +41,23 @@ def preview_tiff(
         raise FileNotFoundError from None
 
     manager: TemporaryFileManager = request.app.state.temporary_file_manager
-    upload = manager.get(parsed_file_id)
-    if upload is None or not upload.path.is_file():
-        raise FileNotFoundError
+    with manager.acquire(parsed_file_id) as upload:
+        if upload is None or not upload.path.is_file():
+            raise FileNotFoundError
 
-    try:
-        rendered = render_tiff_plane_png(
-            upload.path,
-            t=t,
-            z=z,
-            c=c,
-            component=component,
-        )
-    except ApiServiceError:
-        raise
-    except Exception:
-        logger.exception("TIFF preview processing failed")
-        raise ProcessingError from None
+        try:
+            rendered = render_tiff_plane_png(
+                upload.path,
+                t=t,
+                z=z,
+                c=c,
+                component=component,
+            )
+        except ApiServiceError:
+            raise
+        except Exception:
+            logger.exception("TIFF preview processing failed")
+            raise ProcessingError("The image preview could not be generated.") from None
 
     return Response(
         content=rendered.content,

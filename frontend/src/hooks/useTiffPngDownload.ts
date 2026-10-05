@@ -46,7 +46,7 @@ export function useTiffPngDownload(
     activeRequest.current?.controller.abort()
     activeRequest.current = undefined
     setState(IDLE_DOWNLOAD_STATE)
-  }, [fileId])
+  }, [c, component, fileId, t, z])
 
   useEffect(
     () => () => {

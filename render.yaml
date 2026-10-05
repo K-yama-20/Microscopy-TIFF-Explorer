@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: microscopy-tiff-explorer-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: MAX_UPLOAD_SIZE_MB
+        value: 100
+      - key: TEMP_FILE_TTL_MINUTES
+        value: 30
+      - key: TEMP_STORAGE_DIR
+        value: /tmp/microscopy-tiff-explorer

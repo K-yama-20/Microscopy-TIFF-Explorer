@@ -178,11 +178,11 @@ export function TiffUpload({
       aria-labelledby="upload-title"
       aria-busy={upload.state.status === 'uploading'}
     >
-      <p className="card-label">Step 1 of 3</p>
-      <h2 id="upload-title">Choose your TIFF</h2>
+      <p className="card-label">TIFF workspace</p>
+      <h2 id="upload-title">Upload a microscopy TIFF</h2>
       <p className="upload-intro">
-        Select one microscopy image to begin. It will be sent to temporary,
-        server-controlled storage when you upload it.
+        Choose one supported image to inspect its metadata, image planes, and
+        export options.
       </p>
 
       <input
@@ -241,7 +241,7 @@ export function TiffUpload({
             TIFF
           </span>
           <div className="file-details">
-            <strong>{selection.file.name}</strong>
+            <strong title={selection.file.name}>{selection.file.name}</strong>
             <span>{formatFileSize(selection.file.size)}</span>
           </div>
           <button className="clear-button" type="button" onClick={handleClear}>
@@ -258,63 +258,110 @@ export function TiffUpload({
 
       {upload.state.status === 'success' && (
         <div className="upload-result upload-result--success">
-          <strong role="status">Upload complete</strong>
-          <TiffMetadataPanel upload={upload.state.upload} />
-          <TiffDimensionSelectors
-            metadata={upload.state.upload.metadata}
-            selectedT={selectedT}
-            selectedZ={selectedZ}
-            selectedC={selectedC}
-            onSelectedTChange={setSelectedT}
-            onSelectedZChange={setSelectedZ}
-            onSelectedCChange={setSelectedC}
-          />
-          {upload.state.upload.metadata.is_rgb && (
-            <TiffColorComponentSelector
-              value={selectedComponent}
-              onChange={setSelectedComponent}
-            />
-          )}
-          <TiffPreview
-            filename={upload.state.upload.filename}
-            component={selectedComponent}
-            state={preview}
-          />
-          <div className="download-panel">
-            <button
-              className="primary-button download-button"
-              type="button"
-              disabled={
-                !successfulUpload || pngDownload.state.status === 'downloading'
-              }
-              onClick={() => void pngDownload.startDownload()}
-            >
-              {pngDownload.state.status === 'downloading'
-                ? 'Downloading…'
-                : 'Download PNG'}
-            </button>
-            {pngDownload.state.status === 'error' && (
-              <p className="download-error" role="alert">
-                {pngDownload.state.message}
-              </p>
-            )}
-            <button
-              className="secondary-button download-button"
-              type="button"
-              disabled={
-                !successfulUpload || zipDownload.state.status === 'exporting'
-              }
-              onClick={() => void zipDownload.startDownload()}
-            >
-              {zipDownload.state.status === 'exporting'
-                ? 'Exporting…'
-                : 'Export Stack as ZIP'}
-            </button>
-            {zipDownload.state.status === 'error' && (
-              <p className="download-error" role="alert">
-                {zipDownload.state.message}
-              </p>
-            )}
+          <div className="upload-success-heading">
+            <strong role="status">Upload complete</strong>
+            <span>Review the file, choose a view, and export your result.</span>
+          </div>
+          <div className="workflow-grid">
+            <div className="workflow-column workflow-column--details">
+              <div className="workflow-section">
+                <TiffMetadataPanel upload={upload.state.upload} />
+              </div>
+              <div className="workflow-section selection-panel">
+                <h3>Choose the view</h3>
+                <TiffDimensionSelectors
+                  metadata={upload.state.upload.metadata}
+                  selectedT={selectedT}
+                  selectedZ={selectedZ}
+                  selectedC={selectedC}
+                  onSelectedTChange={setSelectedT}
+                  onSelectedZChange={setSelectedZ}
+                  onSelectedCChange={setSelectedC}
+                />
+                {upload.state.upload.metadata.is_rgb && (
+                  <TiffColorComponentSelector
+                    value={selectedComponent}
+                    onChange={setSelectedComponent}
+                  />
+                )}
+              </div>
+            </div>
+            <div className="workflow-column workflow-column--visual">
+              <TiffPreview
+                filename={upload.state.upload.filename}
+                component={selectedComponent}
+                state={preview}
+              />
+              <div
+                className="export-panel workflow-section"
+                aria-busy={
+                  pngDownload.state.status === 'downloading' ||
+                  zipDownload.state.status === 'exporting'
+                }
+              >
+                <h3>Export</h3>
+                <p className="section-help">
+                  PNG uses the current selection. ZIP includes every T/Z/C plane
+                  for the selected RGB color component.
+                </p>
+                <div className="download-panel">
+                  <button
+                    className="primary-button download-button"
+                    type="button"
+                    disabled={
+                      !successfulUpload ||
+                      pngDownload.state.status === 'downloading'
+                    }
+                    onClick={() => void pngDownload.startDownload()}
+                  >
+                    {pngDownload.state.status === 'downloading'
+                      ? 'Downloading…'
+                      : 'Download PNG'}
+                  </button>
+                  {pngDownload.state.status === 'error' && (
+                    <p className="download-error" role="alert">
+                      {pngDownload.state.message}
+                    </p>
+                  )}
+                  <button
+                    className="secondary-button download-button"
+                    type="button"
+                    disabled={
+                      !successfulUpload ||
+                      zipDownload.state.status === 'exporting'
+                    }
+                    onClick={() => void zipDownload.startDownload()}
+                  >
+                    {zipDownload.state.status === 'exporting'
+                      ? 'Exporting…'
+                      : 'Export Stack as ZIP'}
+                  </button>
+                  {zipDownload.state.status === 'error' && (
+                    <p className="download-error" role="alert">
+                      {zipDownload.state.message}
+                    </p>
+                  )}
+                </div>
+                {pngDownload.state.status === 'downloading' && (
+                  <p
+                    className="operation-status"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    Preparing the selected plane for download…
+                  </p>
+                )}
+                {zipDownload.state.status === 'exporting' && (
+                  <p
+                    className="operation-status"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    Rendering and packaging all stack planes…
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -324,6 +371,15 @@ export function TiffUpload({
           {upload.state.message}
         </p>
       )}
+
+      {upload.state.status === 'idle' &&
+        !selection.file &&
+        !selection.error && (
+          <p className="empty-state" role="status">
+            No TIFF selected yet. Choose a file to reveal metadata, image
+            controls, preview, and export actions.
+          </p>
+        )}
 
       <div className="upload-actions">
         <button

@@ -10,19 +10,13 @@ export function App() {
           <p className="eyebrow">Browser-based microscopy workflow</p>
           <h1 id="hero-title">Explore microscopy TIFF files with clarity.</h1>
           <p className="hero-copy">
-            Inspect dimensions and metadata, preview a selected image plane, and
-            export research-ready PNG files from one focused workspace.
+            Inspect metadata and image planes, then download the current view as
+            PNG or export the complete TIFF stack as ZIP.
           </p>
-          <div className="status-card" role="status">
-            <span className="status-indicator" aria-hidden="true" />
-            <div>
-              <strong>TIFF selection is ready</strong>
-              <p>
-                Validate locally, then upload securely for temporary server-side
-                processing.
-              </p>
-            </div>
-          </div>
+          <ul className="capability-list" aria-label="Upload requirements">
+            <li>TIFF files</li>
+            <li>Up to 100 MB</li>
+          </ul>
         </section>
 
         <TiffUpload />
