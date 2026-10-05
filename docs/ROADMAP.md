@@ -2,7 +2,7 @@
 
 ## Goal
 
-Complete an MVP that lets a user upload a supported TIFF, inspect metadata, select T/Z/C dimensions and RGB Color components when applicable, preview the selected plane, export PNG and ZIP files, and use the application through a public URL.
+Complete an MVP that lets a user upload a supported TIFF, inspect metadata, select T/Z/C dimensions and RGB Color components when applicable, preview the selected plane, export PNG and ZIP files, and use the application through a public URL. After MVP v1, extend the same workflow with an ordered image-selection tray and a temporary multi-TIFF workspace without introducing accounts or permanent projects.
 
 ## Step 1 — Project Foundation
 
@@ -259,6 +259,153 @@ merge. Public deployment and production CORS/workflow verification remain
 pending until the branch is reviewed, committed, pushed, and linked to uniquely
 identified provider projects without paid resources.
 
+## Step 11 — Single-TIFF Selection Tray
+
+### Goal
+
+Let the user pin several immutable planes from one TIFF while continuing to use
+one clear active preview.
+
+### Main Tasks
+
+- Introduce an ordered `PinnedSelection` model containing `file_id`, T/Z/C,
+  RGB component, and addition order.
+- Add an **Add to selection** action for the current preview.
+- Prevent exact duplicates identified by file/T/Z/C/component.
+- Add a selected-images tray with source filename, coordinate/component labels,
+  thumbnail, individual removal, clear-all, and individual PNG download.
+- Make a thumbnail click restore its file and coordinates to the active preview.
+- Keep pinned selections immutable when active selectors change.
+- Add optional `max_size` support to the preview endpoint without changing the
+  existing default response.
+- Request thumbnails with a maximum edge of 240 pixels and release every object
+  URL when no longer needed.
+- Keep the current **Download PNG** and **Export Stack as ZIP** behavior intact.
+
+### Acceptance Criteria
+
+- A user can pin multiple planes from one TIFF and continue browsing other
+  T/Z/C/component positions.
+- The UI shows one full-size active preview and an ordered thumbnail tray.
+- Clicking a thumbnail restores the exact selection without removing it.
+- An exact duplicate cannot be added, while different RGB component modes at
+  the same T/Z/C position can be added.
+- Pinned items can be downloaded individually, removed, or cleared.
+- Thumbnail resizing never changes exported image resolution or normalization.
+- Existing preview, PNG, and full-stack ZIP tests continue to pass.
+
+## Step 12 — Selected-Image ZIP Export
+
+### Goal
+
+Export only the pinned images as one atomic, traceable ZIP archive.
+
+### Main Tasks
+
+- Implement `POST /api/exports/selection` with a list of
+  `file_id`/T/Z/C/component items.
+- Design the request for multiple `file_id` values from the beginning, even
+  while the Step 12 UI initially uses one source TIFF.
+- Reject empty requests, exact duplicates, and requests above configured limits.
+- Validate every source, coordinate, and component before returning success.
+- Reuse shared extraction, canonicalization, normalization, PNG encoding, and
+  filename sanitation.
+- Load each source series once and render all requested selections for it.
+- Create a source folder even for a single-file selection ZIP.
+- Add `manifest.csv` with archive path, source filename, T/Z/C, and component in
+  pinned addition order.
+- Escape untrusted CSV values and exclude server paths and storage identifiers.
+- Add **Download selected (N) as ZIP** with processing, abort, and error states.
+- Close spooled archive data on success, failure, and interrupted delivery.
+
+### Acceptance Criteria
+
+- The ZIP contains exactly the pinned images in their addition order.
+- Every PNG matches the existing preview/PNG rendering contract.
+- The archive has deterministic safe paths and a complete `manifest.csv`.
+- A bad or expired item fails the entire request; partial archives are never
+  returned as successful.
+- Empty, duplicate, limit, missing-file, invalid-index, invalid-component, and
+  processing errors use the structured error envelope.
+- Browser downloads clean up temporary anchors, object URLs, and aborted work.
+
+## Step 13 — Multi-TIFF Workspace
+
+### Goal
+
+Allow up to three temporary TIFF sources to coexist while preserving the
+selection-tray behavior from Steps 11–12.
+
+### Main Tasks
+
+- Replace the single upload result state with an ordered `WorkspaceFile` list.
+- Add a file list and **Add TIFF** action without clearing valid existing files.
+- Maintain one active file and a separate last active T/Z/C/component selection
+  for each file.
+- Default every new file to T=0, Z=0, C=0, and composite.
+- Keep upload failure isolated to the attempted file.
+- Permit equal source filenames and add display-only `(2)`, `(3)` suffixes.
+- Keep one shared pinned-selection tray spanning all active files.
+- Make a pinned-item click activate the correct source before restoring its
+  selection.
+- Confirm removal when a source has pinned items, then remove only that source
+  and its dependent selections.
+- Add idempotent `DELETE /api/tiff/{file_id}` for eager cleanup while retaining
+  TTL cleanup as fallback.
+- Do not restore workspace state after reload or write file IDs to localStorage.
+
+### Acceptance Criteria
+
+- Adding a second or third TIFF leaves earlier files and selections intact.
+- Switching files restores each file's last selector state.
+- Same-name files remain distinct and understandable in the UI.
+- Selections from all files appear in one ordered tray.
+- Removing one file affects only that file and its pinned items.
+- A failed upload or expired file does not clear other valid workspace sources.
+- The existing one-file workflow remains simple and fully functional.
+
+## Step 14 — Multi-File Export, Limits, and Lifecycle
+
+### Goal
+
+Complete safe multi-file batch export and adapt temporary-file lifecycle rules
+to a longer interactive workspace.
+
+### Main Tasks
+
+- Extend the selected-export UI to send selections from multiple sources using
+  the Step 12 API without replacing its contract.
+- Group archive entries into numbered, sanitized source folders based on first
+  request appearance.
+- Acquire all referenced upload leases safely, process one TIFF array at a time,
+  and release large arrays before loading the next source.
+- Enforce defaults of 3 active/distinct files, 200 MB combined source size, and
+  50 pinned/exported images in backend and frontend.
+- Change cleanup to 30 minutes since successful use with a two-hour absolute
+  lifetime from upload.
+- Track `created_at` and `last_accessed_at`; never extend the absolute deadline.
+- Preserve lease safety, startup orphan cleanup, and structured missing-file
+  behavior across hosting restarts.
+- Add clear inactivity and absolute-lifetime messaging to the UI.
+- Complete multi-file RGB, filename collision, manifest, concurrency, cleanup,
+  and regression tests.
+
+### Acceptance Criteria
+
+- One ZIP can contain selected planes from up to three TIFFs with no path or
+  filename collision.
+- The archive contains no more than 50 requested PNGs and the sources total no
+  more than 200 MB.
+- Each source is loaded once per export and multiple full TIFF arrays are not
+  retained simultaneously.
+- `C` and RGB `S` remain independent for every source.
+- Activity extends the inactivity deadline, but no source survives beyond two
+  hours from upload.
+- Concurrent cleanup cannot delete an actively rendered source.
+- Expired or restarted-away sources fail safely without corrupting other
+  workspace state.
+- All Steps 1–13 regression tests remain green.
+
 ## Suggested One-Week Schedule
 
 ```text
@@ -272,6 +419,16 @@ Day 7: Real TIFF testing, screenshots, README, portfolio polish
 ```
 
 If time is limited, prioritize Upload → Metadata → T/Z/C selection → Preview → PNG export → Deployment. ZIP export and visual polish may be reduced before compromising the core workflow.
+
+Post-MVP v2 should be delivered as four focused increments rather than one
+large change:
+
+```text
+Increment 1: Step 11 — selection state and thumbnails
+Increment 2: Step 12 — selected-image ZIP API and UI
+Increment 3: Step 13 — multi-file workspace
+Increment 4: Step 14 — multi-file lifecycle, limits, and regression hardening
+```
 
 ## Development Rule
 
@@ -288,6 +445,10 @@ feature/007-normalization
 feature/008-png-export
 feature/009-zip-export
 feature/010-deploy-polish
+feature/011-selection-tray
+feature/012-selection-export
+feature/013-multi-file-workspace
+feature/014-workspace-lifecycle
 ```
 
 ## MVP Priority
@@ -295,6 +456,13 @@ feature/010-deploy-polish
 - P0: TIFF upload, metadata parsing, T/Z/C selection, preview, 16-bit normalization, PNG export
 - P1: ZIP export, temporary-file cleanup, error polish
 - P2: visual polish, additional metadata, optional deletion endpoint
+
+Post-MVP v2 priorities:
+
+- P0: immutable selection tray and selected-image ZIP export
+- P1: multi-file workspace, eager removal, multi-file export, and enforced limits
+- P1: inactivity plus absolute lifetime cleanup and multi-source lease safety
+- P2: thumbnail performance polish and richer workspace status messaging
 
 The MVP should not be delayed for features outside P0 unless they are required for safe public deployment.
 

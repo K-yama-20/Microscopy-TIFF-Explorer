@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Microscopy TIFF Explorer is a web application for inspecting multidimensional microscopy TIFF files and exporting selected image planes as PNG or ZIP files.
+Microscopy TIFF Explorer is a web application for inspecting multidimensional microscopy TIFF files and exporting selected image planes as PNG or ZIP files. MVP v1 uses one active TIFF. The agreed v2 extension adds a temporary browser workspace containing multiple TIFFs and an ordered tray of pinned plane selections.
 
 The MVP separates the browser UI, TIFF-processing API, and temporary file storage. It intentionally has no database, authentication, persistent uploads, or Supabase dependency.
 
@@ -83,6 +83,8 @@ The frontend owns:
 - PNG and ZIP download initiation
 - User-friendly error display
 
+The v2 frontend additionally owns the ordered workspace file list, per-file active selector state, immutable pinned-selection state, thumbnail object URLs, and selected-image batch-download initiation. These remain session-local UI state and are not persisted across page reloads.
+
 It must not parse large multidimensional TIFF files itself for MVP v1.
 
 ## 6. Backend Responsibilities
@@ -98,6 +100,8 @@ The backend owns:
 - PNG encoding and ZIP streaming/generation
 - Structured errors
 - Temporary-file expiration and cleanup
+
+The v2 backend additionally validates multi-file selection manifests, enforces batch limits, leases every referenced upload during atomic export, renders selections one source file at a time, and creates grouped archives with a manifest.
 
 ## 7. Frontend Technology
 
@@ -240,7 +244,7 @@ and UTC creation time.
 
 ## 19. Cleanup Policy
 
-The default TTL is 30 minutes and is configured by
+The MVP v1 default TTL is 30 minutes and is configured by
 `TEMP_FILE_TTL_MINUTES`. Request-time cleanup runs when a new upload starts and
 when an existing upload is acquired. Expired records are removed from memory and
 their TIFFs are deleted without requiring a browser `DELETE` call.
@@ -402,5 +406,255 @@ FastAPI application API
 - Output: normalized PNG and temporary ZIP
 - Persistence, accounts, database, Supabase: excluded from MVP v1
 
+For v2, a workspace remains temporary React state rather than a durable server-side project. Pinned selections are coordinate references, not stored image copies. A generic multi-file selection-export API is introduced before the multi-file UI so the API contract does not need to be replaced when additional TIFFs become available.
+
 This is the smallest architecture that safely supports the agreed MVP while leaving clear extension points for later research-workflow features.
+
+## 35. v2 Workspace State Model
+
+The frontend state is split into source files, one active source, and pinned selections:
+
+```ts
+type WorkspaceFile = {
+  clientId: string
+  fileId: string
+  filename: string
+  displayName: string
+  sizeBytes: number
+  metadata: TiffMetadata
+  activeSelection: {
+    t: number
+    z: number
+    c: number
+    component: RgbComponent
+  }
+  status: 'ready' | 'expired' | 'error'
+}
+
+type PinnedSelection = {
+  id: string
+  fileId: string
+  t: number
+  z: number
+  c: number
+  component: RgbComponent
+  additionOrder: number
+}
+```
+
+`PinnedSelection.id` is derived from or uniquely associated with
+`fileId + t + z + c + component`. An exact duplicate cannot enter normal
+frontend state. A pinned selection is immutable; changing the active selectors
+creates a new candidate rather than editing existing pinned data.
+
+The active file controls the metadata panel, selectors, and one full-size main
+preview. Clicking a pinned thumbnail activates its source file and restores its
+coordinates and component. Each file retains its last active selection while
+the user switches sources.
+
+No workspace state is written to `localStorage`. A reload starts a new browser
+workspace because temporary file IDs may already be expired or invalid after a
+backend restart.
+
+## 36. v2 Selection Tray and Thumbnail Flow
+
+The selection tray displays small previews rather than many full-resolution
+images. The existing preview endpoint gains an optional bounded parameter:
+
+```http
+GET /api/tiff/{file_id}/preview?t=0&z=0&c=0&component=composite&max_size=240
+```
+
+`max_size` is optional. Omission preserves v1 behavior. When present, the
+backend runs the existing extraction and normalization pipeline, then resizes
+the display PNG while preserving aspect ratio. It does not change export
+resolution or source metadata. The server validates an allowed range and the
+selection tray requests a maximum edge of 240 pixels.
+
+Thumbnail requests are lazy where practical. Browser object URLs are revoked
+when a selection is removed, its source is removed, the workspace is cleared,
+or the component unmounts. A thumbnail is presentation-only; successful batch
+export never trusts or reuses its bytes as the scientific output.
+
+## 37. v2 Selected-Image Export API
+
+```http
+POST /api/exports/selection
+Content-Type: application/json
+```
+
+Request model:
+
+```json
+{
+  "items": [
+    {
+      "file_id": "0a4c9a20-9f63-4bbb-b3a2-76f58a58b2dd",
+      "t": 0,
+      "z": 3,
+      "c": 1,
+      "component": "composite"
+    }
+  ]
+}
+```
+
+The request order is the pinned addition order. The contract accepts multiple
+`file_id` values from its first release even when Step 12 initially exposes it
+through a single-file UI. It returns `application/zip` with an attachment
+filename such as `microscopy-selection.zip`.
+
+The response is atomic. Before response streaming begins, the backend validates:
+
+- A non-empty item list.
+- No exact duplicate selection.
+- Item, distinct-file, and combined-source-size limits.
+- Every UUID and temporary upload.
+- Every T/Z/C coordinate and component against its source metadata.
+- Unique, safe archive paths.
+
+Any failure closes temporary archive resources and returns the structured error
+envelope. The server never returns a successful ZIP that silently omits an
+invalid or expired request item.
+
+## 38. v2 Batch Rendering Strategy
+
+Selected items are grouped by `file_id` while their original addition order is
+retained for the manifest. The backend acquires leases for all distinct sources
+in a consistent order before expensive work begins. This prevents an upload
+from expiring between validation and later rendering.
+
+Each source TIFF is processed sequentially:
+
+```text
+validate request
+  → acquire all source leases
+  → group selections by file_id
+  → open one TIFF
+  → load its primary series once
+  → render every requested plane for that source
+  → release its NumPy array
+  → continue with the next source
+  → write manifest.csv
+  → stream and close the spooled ZIP
+```
+
+The implementation reuses semantic extraction, RGB component selection,
+canonicalization, normalization, PNG encoding, and filename sanitation. It must
+not reopen or reload the same TIFF for every selected item and must not keep all
+source arrays resident simultaneously.
+
+## 39. v2 Archive Layout and Manifest
+
+Selected-image archives always use one generated folder per source, even for a
+single source:
+
+```text
+microscopy-selection.zip
+├── 01_sample-a/
+│   ├── sample-a_T000_Z003_C001_RGB.png
+│   └── sample-a_T000_Z002_C002_R.png
+├── 02_sample-b/
+│   └── sample-b_T001_Z000_C000_B.png
+└── manifest.csv
+```
+
+Source folders are numbered by first appearance in the request. A sanitized
+basename is used after the numeric prefix, so equal client filenames remain
+separate. PNG basenames continue to use the v1 component-aware convention.
+
+`manifest.csv` contains one row per selection in request order with at least:
+
+```text
+archive_path,source_filename,t,z,c,component
+```
+
+The manifest excludes `file_id`, storage paths, and other server internals.
+CSV values are escaped safely, including formula-leading client filenames, so
+opening the manifest in spreadsheet software cannot interpret an untrusted
+filename as a formula.
+
+## 40. v2 File Removal API
+
+The multi-file UI should eagerly release a removed source:
+
+```http
+DELETE /api/tiff/{file_id}
+```
+
+Deletion is idempotent from the UI perspective. If a referenced source has
+active leases, it becomes unavailable to new requests and physical deletion is
+deferred until the final lease is released. Browser removal also removes every
+dependent pinned selection after confirmation. TTL cleanup remains mandatory
+when the browser cannot send DELETE.
+
+## 41. v2 Limits and Configuration
+
+The initial defaults are:
+
+```text
+MAX_WORKSPACE_FILES=3
+MAX_WORKSPACE_SIZE_MB=200
+MAX_PINNED_SELECTIONS=50
+THUMBNAIL_MAX_SIZE_PX=240
+TEMP_FILE_TTL_MINUTES=30
+TEMP_FILE_MAX_LIFETIME_MINUTES=120
+```
+
+The individual upload limit remains `MAX_UPLOAD_SIZE_MB=100`. Frontend limits
+mirror backend limits for immediate feedback, but backend enforcement is
+authoritative. A selected export rejects more than three distinct sources, more
+than 50 items, or sources whose combined recorded upload size exceeds 200 MB.
+
+## 42. v2 Sliding Expiration
+
+Each upload tracks both `created_at` and `last_accessed_at`. The inactivity TTL
+is 30 minutes and the absolute lifetime is two hours. A successful full-size
+or thumbnail preview, PNG export, stack ZIP export, or selected-image export
+updates `last_accessed_at`, but never extends the absolute deadline.
+
+Cleanup and acquisition remain lock-protected. An upload beyond either deadline
+is unavailable to new acquisitions. An existing reference-counted lease may
+finish, after which deletion occurs. Startup orphan cleanup uses safe managed
+filenames and file timestamps as a conservative fallback because in-memory
+access times do not survive process restarts.
+
+## 43. v2 Error Contract Extensions
+
+The existing envelope is retained. New codes are:
+
+- `EMPTY_SELECTION`: no batch items were supplied.
+- `BATCH_LIMIT_EXCEEDED`: file count, source-size, or selection count exceeded.
+- `DUPLICATE_SELECTION`: the same file/T/Z/C/component tuple appeared twice.
+
+Existing `FILE_NOT_FOUND`, `INVALID_DIMENSION_INDEX`,
+`INVALID_RGB_COMPONENT`, and `PROCESSING_ERROR` apply to individual batch items.
+The frontend may associate an error with its local display filename, but the API
+does not disclose a server path. Partial batch success is not part of the
+contract.
+
+## 44. v2 Testing Strategy
+
+Backend tests cover:
+
+- Duplicate detection and empty/limit errors.
+- Atomic behavior when one item is missing, expired, or invalid.
+- One-time TIFF loading per source group.
+- Interleaved and planar RGB selections across multiple sources.
+- Independent microscopy `C` and RGB sample `S` behavior.
+- Stable folder numbering, collision-free names, and safe CSV escaping.
+- Full-resolution export despite thumbnail resizing.
+- Multi-file leases, inactivity extension, absolute expiration, and removal.
+- ZIP spool cleanup on success, error, and interrupted delivery.
+
+Frontend tests cover:
+
+- Immutable pinning, duplicate prevention, removal, and clear-all.
+- Thumbnail lifecycle and object URL cleanup.
+- Restoring a pinned item to the active preview.
+- Adding files without clearing earlier files or selections.
+- Per-file selector restoration and same-name display labels.
+- Confirmation and dependent-selection cleanup on source removal.
+- Selected ZIP request order, loading/error states, and download cleanup.
+- Existing PNG and full-stack ZIP workflows without regressions.
 

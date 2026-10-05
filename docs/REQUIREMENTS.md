@@ -10,7 +10,9 @@ Microscopy TIFF Explorer
 
 Microscopy TIFF Explorer is a web application for inspecting and exporting microscopy TIFF images.
 
-The application allows users to upload TIFF files, inspect their dimensional structure and metadata, select specific Channel / Z-stack / Time-point positions, preview the selected image plane, and export images as PNG files.
+The application allows users to upload TIFF files, inspect their dimensional structure and metadata, select specific Channel / Z-stack / Time-point positions, preview image planes, and export images as PNG or ZIP files.
+
+MVP v1 supports one active TIFF and one active preview. The agreed v2 extension adds a temporary multi-file workspace, lets users pin multiple immutable plane selections, and exports only those selections together without changing the existing single-plane or full-stack workflows.
 
 The MVP is intended primarily for researchers and students who handle microscopy images and need a lightweight browser-based tool for inspecting multidimensional TIFF files without dedicated desktop software.
 
@@ -274,4 +276,178 @@ MVP v1 is complete when a user can:
 > Upload a microscopy TIFF, understand its structure, inspect the desired image plane, and export it with as little friction as possible.
 
 Features that do not directly contribute to this workflow should generally wait until after the MVP.
+
+## 31. Multi-Image Selection and Multi-TIFF Workspace (v2)
+
+### 31.1 Terminology
+
+The v2 interface uses these terms consistently:
+
+- **Upload**: send a TIFF source file to temporary backend storage.
+- **Active file**: the one uploaded TIFF whose metadata and selectors are currently shown.
+- **Active preview**: the one full-size plane currently controlled by T/Z/C and optional RGB component selectors.
+- **Pinned selection**: an immutable reference to one `file_id`, T/Z/C coordinate, and RGB component mode.
+- **Selected images**: the ordered collection of pinned selections from one or more uploaded TIFFs.
+- **Batch export**: export only the selected images as one ZIP archive.
+
+The UI must not use “import preview” for pinning a plane because TIFF upload and plane selection are separate operations.
+
+### 31.2 Active Preview and Selection Tray
+
+The application displays one full-size active preview at a time. Users may pin the current plane with an **Add to selection** action and then continue changing T/Z/C and RGB component selectors without mutating previously pinned selections.
+
+Each pinned item stores selection metadata rather than a permanent PNG:
+
+```text
+file_id
+t
+z
+c
+component
+addition_order
+```
+
+The selection tray must:
+
+- Show a thumbnail, source filename, T/Z/C indices, and component label.
+- Keep a pinned selection unchanged when the active selectors change.
+- Restore its source file and selectors to the active preview when clicked.
+- Allow its individual PNG to be downloaded through the existing PNG endpoint.
+- Allow individual removal and a clear-all action.
+- Preserve addition order.
+- Prevent an exact duplicate identified by `file_id + t + z + c + component`.
+- Treat composite, Red, Green, and Blue at the same T/Z/C position as distinct selections.
+
+The initial v2 release does not render many full-resolution previews simultaneously and does not support drag reordering. Thumbnails should use an optional preview size limit with a default maximum edge of 240 pixels, while exports remain full resolution.
+
+### 31.3 Multi-TIFF Workspace
+
+The user may add TIFFs without replacing already uploaded TIFFs. The workspace must show an ordered file list and an **Add TIFF** action. Each file retains its own last active T/Z/C/component selection while the user switches between files.
+
+Newly uploaded files start at T=0, Z=0, C=0, and `component=composite`. Upload failure for one file must not clear other valid files or their pinned selections.
+
+Files with the same source filename are allowed and receive disambiguated display labels such as `sample.tif`, `sample.tif (2)`, and `sample.tif (3)`. Identity and export behavior continue to use the opaque `file_id`, not the display label.
+
+Removing a file also removes every pinned selection that references it. If such selections exist, the UI must ask for confirmation. Removal should attempt eager backend deletion, while automatic TTL cleanup remains the fallback. Other workspace files must remain usable.
+
+The workspace is temporary browser state. Refreshing, closing, or navigating away from the page does not restore the file list, active selections, or pinned selections. No file IDs or scientific workflow state are persisted in `localStorage` for v2.
+
+### 31.4 Selected-Image Batch Export
+
+The existing **Download PNG** and **Export Stack as ZIP** operations remain unchanged. A new **Download selected (N) as ZIP** action exports only pinned selections.
+
+The API is designed for multiple files from its first implementation, even when the initial UI uses one source file:
+
+```http
+POST /api/exports/selection
+Content-Type: application/json
+```
+
+Example request:
+
+```json
+{
+  "items": [
+    {
+      "file_id": "a UUID",
+      "t": 0,
+      "z": 3,
+      "c": 1,
+      "component": "composite"
+    },
+    {
+      "file_id": "another UUID",
+      "t": 1,
+      "z": 0,
+      "c": 0,
+      "component": "blue"
+    }
+  ]
+}
+```
+
+The response is `application/zip`. Export is atomic: either every requested item is present or the request fails with a structured error. The backend must never silently omit expired, invalid, or unrenderable items.
+
+### 31.5 Archive Contract
+
+The selection ZIP always groups entries by source file, including when only one file is selected. Folders use the order in which each source first appears in the request and a sanitized basename:
+
+```text
+microscopy-selection.zip
+├── 01_sample-a/
+│   ├── sample-a_T000_Z003_C001_RGB.png
+│   └── sample-a_T000_Z002_C002_R.png
+├── 02_sample-b/
+│   └── sample-b_T001_Z000_C000_B.png
+└── manifest.csv
+```
+
+`manifest.csv` contains at least `archive_path`, `source_filename`, `t`, `z`, `c`, and `component` in pinned addition order. It must not expose server paths or storage identifiers. Archive paths and filenames are generated and sanitized by the backend; the client cannot supply them.
+
+### 31.6 Initial Operational Limits
+
+The initial public v2 limits are:
+
+- Maximum active TIFFs: 3.
+- Maximum individual TIFF size: 100 MB, preserving v1 behavior.
+- Maximum combined active source size: 200 MB.
+- Maximum pinned selections: 50.
+- Maximum distinct source files in one selected export: 3.
+- Maximum PNG entries in one selected export: 50.
+- Thumbnail maximum edge: 240 pixels.
+
+Limits must be enforced by the backend where applicable and mirrored by frontend validation for immediate feedback. Deployment-specific limits may be lowered after production measurement, but frontend messaging and backend enforcement must remain consistent.
+
+### 31.7 Temporary Lifetime
+
+For v2, the file lifecycle changes from a creation-only TTL to:
+
+- 30 minutes after the last successful workspace use.
+- A two-hour absolute lifetime from upload.
+- Full-size preview, thumbnail preview, PNG export, stack ZIP export, and selected-image export count as activity.
+- Expired files reject new operations with `FILE_NOT_FOUND`.
+- Existing reference-counted leases allow an already-running request to finish safely.
+
+The UI explains both limits. Hosting restarts or ephemeral-storage loss may invalidate a file earlier and must continue to produce a safe missing-file state.
+
+### 31.8 Error Requirements
+
+Selected-image workflows add these structured cases:
+
+- `EMPTY_SELECTION` when no items are supplied.
+- `BATCH_LIMIT_EXCEEDED` when file, size, or item limits are exceeded.
+- `DUPLICATE_SELECTION` when an API client submits the same exact selection more than once.
+- Existing `FILE_NOT_FOUND`, `INVALID_DIMENSION_INDEX`, `INVALID_RGB_COMPONENT`, and `PROCESSING_ERROR` codes for per-item failures.
+
+When safe and useful, the frontend should identify the affected source by display filename. API errors must not expose filesystem paths. Partial ZIP responses are not allowed.
+
+### 31.9 Explicit v2 Non-Goals
+
+The agreed selection workspace does not include:
+
+- Image overlay, registration, blending, or difference views.
+- Pseudocolor composition beyond the existing RGB behavior.
+- Crop, manual brightness/contrast, or image editing.
+- Annotation or measurements.
+- Drag-and-drop ordering of pinned selections.
+- Persistence across page reloads or devices.
+- User accounts, saved projects, collaboration, or sharing.
+- Multi-series selection.
+- Merging or rewriting source TIFF files.
+
+## 32. Definition of v2 Completion
+
+The v2 extension is complete when a user can:
+
+1. Upload one TIFF, preview different planes, and pin multiple immutable selections.
+2. Reopen any pinned selection in the active preview.
+3. Download one pinned image through the existing PNG workflow.
+4. Export all pinned images atomically as a structured ZIP with `manifest.csv`.
+5. Add up to three TIFFs without clearing earlier files.
+6. Retain a separate active T/Z/C/component selection for each file.
+7. Pin and batch-export images from multiple files without filename collisions.
+8. Remove one file and only its dependent selections.
+9. Receive clear errors for duplicates, limits, invalid coordinates/components, and expired files.
+10. Use the existing single-plane PNG and full-stack ZIP workflows unchanged.
+11. Trust that thumbnails, archives, and source TIFFs remain temporary.
 
