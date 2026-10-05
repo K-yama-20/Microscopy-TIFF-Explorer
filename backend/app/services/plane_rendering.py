@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import tifffile
 
 from app.services.normalization import normalize_to_uint8
@@ -17,6 +18,44 @@ class RenderedPng:
     content: bytes
     component: RgbComponent
     is_rgb: bool
+
+
+def render_array_plane_png(
+    array: np.ndarray,
+    axes: str,
+    *,
+    t: int = 0,
+    z: int = 0,
+    c: int = 0,
+    component: RgbComponent | str = RgbComponent.COMPOSITE,
+) -> RenderedPng:
+    """Render one plane from an already loaded primary-series array."""
+    plane = extract_plane(
+        array,
+        axes,
+        t=t,
+        z=z,
+        c=c,
+        component=component,
+    )
+    normalized = normalize_to_uint8(plane)
+    selected_component = (
+        component
+        if isinstance(component, RgbComponent)
+        else validate_plane_selection(
+            array.shape,
+            axes,
+            t=t,
+            z=z,
+            c=c,
+            component=component,
+        )
+    )
+    return RenderedPng(
+        content=encode_png(normalized),
+        component=selected_component,
+        is_rgb="S" in axes,
+    )
 
 
 def render_tiff_plane_png(
@@ -44,17 +83,11 @@ def render_tiff_plane_png(
         )
         array = series.asarray()
 
-    plane = extract_plane(
+    return render_array_plane_png(
         array,
         axes,
         t=t,
         z=z,
         c=c,
         component=selected_component,
-    )
-    normalized = normalize_to_uint8(plane)
-    return RenderedPng(
-        content=encode_png(normalized),
-        component=selected_component,
-        is_rgb="S" in axes,
     )

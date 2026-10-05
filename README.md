@@ -104,6 +104,21 @@ isolated Red, Green, and Blue grayscale exports use `_R`, `_G`, and `_B`. The
 source basename loses its final `.tif`/`.tiff` extension, and unsafe header
 characters are replaced before the name is used in `Content-Disposition`.
 
+The **Export Stack as ZIP** button exports every available T/Z/C position for
+the current Color component from:
+
+```http
+GET /api/tiff/{file_id}/export/zip?component=composite
+```
+
+The component defaults to `composite`; RGB files can instead export only the
+Red, Green, or Blue grayscale component across the stack. The RGB sample axis
+`S` never increases the number of entries, while a microscopy Channel axis `C`
+is enumerated independently. Archive entries use deterministic T/Z/C names and
+the same extraction, normalization, and PNG encoding pipeline as preview and
+single-plane export. ZIP data is written to a spooled temporary stream and is
+closed after response delivery rather than retained as a permanent file.
+
 Metadata-confirmed RGB TIFFs support both interleaved `YXS` and planar `SYX`
 layouts, plus compatible T/Z/C combinations. The `C` axis is a microscopy
 Channel and remains independently selectable, while `S` contains the three
@@ -159,7 +174,8 @@ selection, pre-upload validation, temporary upload through the FastAPI backend,
 display of normalized primary-series TIFF metadata, and zero-based T/Z/C
 selection for axes present in the uploaded image. It now displays live PNG
 previews, a separate RGB Color component selector when applicable, and a PNG
-download action for the current selection. The
+download action for the current selection, plus ZIP export of the complete
+T/Z/C stack for the current Color component. The
 backend currently supports `uint8` and `uint16` data with unambiguous
 combinations of the T, Z, C, Y, X, and metadata-confirmed RGB S axes, including
 `YX`, `ZYX`, `CYX`, `ZCYX`, `TZCYX`, `YXS`, and `SYX`.
