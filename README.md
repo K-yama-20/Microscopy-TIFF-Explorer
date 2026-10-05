@@ -89,6 +89,21 @@ Z, microscopy Channel, or RGB Color component selection changes. Supported
 Color component values are `composite`, `red`, `green`, and `blue`; composite
 is the default and the individual components are returned as grayscale.
 
+The **Download PNG** button exports that same current selection from:
+
+```http
+GET /api/tiff/{file_id}/export/png?t=0&z=0&c=0&component=composite
+```
+
+The response is an uncached `image/png` attachment. Preview and export use the
+same plane extraction, canonical `YX`/`YXS` conversion, uint8 normalization,
+and PNG encoding pipeline, so their pixels match for an identical selection.
+Export filenames contain zero-based, zero-padded T/Z/C indices. Non-RGB images
+use names such as `sample_T000_Z012_C002.png`; RGB composite uses `_RGB`, while
+isolated Red, Green, and Blue grayscale exports use `_R`, `_G`, and `_B`. The
+source basename loses its final `.tif`/`.tiff` extension, and unsafe header
+characters are replaced before the name is used in `Content-Disposition`.
+
 Metadata-confirmed RGB TIFFs support both interleaved `YXS` and planar `SYX`
 layouts, plus compatible T/Z/C combinations. The `C` axis is a microscopy
 Channel and remains independently selectable, while `S` contains the three
@@ -143,7 +158,8 @@ Implementation is organized into ten roadmap steps. See
 selection, pre-upload validation, temporary upload through the FastAPI backend,
 display of normalized primary-series TIFF metadata, and zero-based T/Z/C
 selection for axes present in the uploaded image. It now displays live PNG
-previews and a separate RGB Color component selector when applicable. The
+previews, a separate RGB Color component selector when applicable, and a PNG
+download action for the current selection. The
 backend currently supports `uint8` and `uint16` data with unambiguous
 combinations of the T, Z, C, Y, X, and metadata-confirmed RGB S axes, including
 `YX`, `ZYX`, `CYX`, `ZCYX`, `TZCYX`, `YXS`, and `SYX`.

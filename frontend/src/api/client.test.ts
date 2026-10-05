@@ -2,7 +2,12 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiClientError, fetchTiffPreview, uploadTiff } from './client'
+import {
+  ApiClientError,
+  downloadTiffPng,
+  fetchTiffPreview,
+  uploadTiff,
+} from './client'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -204,5 +209,123 @@ describe('fetchTiffPreview', () => {
         'One or more indices are out of range.',
       ),
     )
+  })
+})
+
+describe('downloadTiffPng', () => {
+  it('requests the selected plane and returns its PNG and safe filename', async () => {
+    const png = new Blob(['png'], { type: 'image/png' })
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(png, {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/png',
+          'Content-Disposition':
+            'attachment; filename="sample_T001_Z002_C003_B.png"',
+        },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await downloadTiffPng('file id', {
+      t: 1,
+      z: 2,
+      c: 3,
+      component: 'blue',
+    })
+
+    expect(result.blob.type).toBe('image/png')
+    expect(result.filename).toBe('sample_T001_Z002_C003_B.png')
+    expect(fetchMock.mock.calls[0][0]).toMatch(
+      /\/api\/tiff\/file%20id\/export\/png\?t=1&z=2&c=3&component=blue$/,
+    )
+  })
+
+  it.each([
+    [null, 'image.png'],
+    ['attachment', 'image.png'],
+    ['attachment; filename="../../unsafe.png"', 'unsafe.png'],
+    ['attachment; filename="not-a-png.txt"', 'image.png'],
+    ['attachment; filename="bad:name.png"', 'bad_name.png'],
+  ])(
+    'uses a safe filename for Content-Disposition %s',
+    async (contentDisposition, expected) => {
+      const headers = new Headers({ 'Content-Type': 'image/png' })
+      if (contentDisposition) {
+        headers.set('Content-Disposition', contentDisposition)
+      }
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValue(
+            new Response(new Blob(['png']), { status: 200, headers }),
+          ),
+      )
+
+      await expect(
+        downloadTiffPng('file-id', { t: 0, z: 0, c: 0 }),
+      ).resolves.toMatchObject({ filename: expected })
+    },
+  )
+
+  it('turns a structured export error into a client error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 'INVALID_RGB_COMPONENT',
+              message: 'Choose a valid RGB component.',
+            },
+          }),
+          { status: 422, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    )
+
+    await expect(
+      downloadTiffPng('file-id', {
+        t: 0,
+        z: 0,
+        c: 0,
+        component: 'red',
+      }),
+    ).rejects.toEqual(
+      new ApiClientError(
+        'INVALID_RGB_COMPONENT',
+        'Choose a valid RGB component.',
+      ),
+    )
+  })
+
+  it('reports network failures clearly', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('offline')))
+
+    await expect(
+      downloadTiffPng('file-id', { t: 0, z: 0, c: 0 }),
+    ).rejects.toEqual(
+      new ApiClientError(
+        'NETWORK_ERROR',
+        'Could not reach the PNG export service. Please try again.',
+      ),
+    )
+  })
+
+  it('rejects a non-PNG success response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response('not png', {
+          status: 200,
+          headers: { 'Content-Type': 'text/plain' },
+        }),
+      ),
+    )
+
+    await expect(
+      downloadTiffPng('file-id', { t: 0, z: 0, c: 0 }),
+    ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
   })
 })

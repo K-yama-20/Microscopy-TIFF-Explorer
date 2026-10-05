@@ -564,6 +564,22 @@ a {
   border-radius: 12px;
 }
 
+.download-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.download-button {
+  width: 100%;
+}
+
+.download-error {
+  margin: 0;
+  color: #ffe9e7;
+  font-size: 0.84rem;
+}
+
 .upload-result--error {
   color: #ffe9e7;
   background: rgba(178, 65, 54, 0.24);

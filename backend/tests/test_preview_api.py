@@ -214,7 +214,9 @@ def test_preview_calls_shared_normalization_once_with_canonical_plane(
         calls.append(image.copy())
         return normalized_result
 
-    monkeypatch.setattr("app.api.preview.normalize_to_uint8", normalization_spy)
+    monkeypatch.setattr(
+        "app.services.plane_rendering.normalize_to_uint8", normalization_spy
+    )
 
     _, preview = upload_and_preview(
         make_app(tmp_path),
@@ -306,7 +308,7 @@ def test_processing_failure_does_not_expose_internal_details(
                 },
             )
             monkeypatch.setattr(
-                "app.api.preview.tifffile.TiffFile",
+                "app.services.plane_rendering.tifffile.TiffFile",
                 lambda _path: (_ for _ in ()).throw(RuntimeError("secret path")),
             )
             return await client.get(f"/api/tiff/{upload.json()['file_id']}/preview")

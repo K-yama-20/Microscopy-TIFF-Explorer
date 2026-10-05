@@ -11,6 +11,15 @@ class ApiServiceError(Exception):
         self.status_code = status_code
 
 
+class FileNotFoundError(ApiServiceError):
+    def __init__(self) -> None:
+        super().__init__(
+            code="FILE_NOT_FOUND",
+            message="The temporary TIFF file could not be found.",
+            status_code=404,
+        )
+
+
 class ErrorDetail(BaseModel):
     code: str
     message: str
