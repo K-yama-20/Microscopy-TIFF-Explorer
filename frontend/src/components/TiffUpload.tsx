@@ -8,6 +8,10 @@ import {
 
 import type { RgbComponent } from '../types/api'
 import {
+  type DownloadTiffPngFunction,
+  useTiffPngDownload,
+} from '../hooks/useTiffPngDownload'
+import {
   type PreviewTiffFunction,
   useTiffPreview,
 } from '../hooks/useTiffPreview'
@@ -27,13 +31,18 @@ import { TiffPreview } from './TiffPreview'
 interface TiffUploadProps {
   uploadFile?: UploadTiffFunction
   previewFile?: PreviewTiffFunction
+  downloadPng?: DownloadTiffPngFunction
 }
 
 const ACCEPTED_FILE_TYPES = '.tif,.tiff,image/tiff'
 const DROPZONE_INSTRUCTIONS_ID = 'tiff-dropzone-instructions'
 const VALIDATION_MESSAGE_ID = 'tiff-validation-message'
 
-export function TiffUpload({ uploadFile, previewFile }: TiffUploadProps) {
+export function TiffUpload({
+  uploadFile,
+  previewFile,
+  downloadPng,
+}: TiffUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [selection, setSelection] = useState<TiffFileSelectionState>(
     clearTiffFileSelection,
@@ -56,6 +65,16 @@ export function TiffUpload({ uploadFile, previewFile }: TiffUploadProps) {
       component: selectedComponent,
     },
     previewFile,
+  )
+  const pngDownload = useTiffPngDownload(
+    {
+      fileId: successfulUpload?.file_id,
+      t: selectedT,
+      z: selectedZ,
+      c: selectedC,
+      component: selectedComponent,
+    },
+    downloadPng,
   )
 
   const chooseFile = () => inputRef.current?.click()
@@ -248,6 +267,25 @@ export function TiffUpload({ uploadFile, previewFile }: TiffUploadProps) {
             component={selectedComponent}
             state={preview}
           />
+          <div className="download-panel">
+            <button
+              className="primary-button download-button"
+              type="button"
+              disabled={
+                !successfulUpload || pngDownload.state.status === 'downloading'
+              }
+              onClick={() => void pngDownload.startDownload()}
+            >
+              {pngDownload.state.status === 'downloading'
+                ? 'Downloading…'
+                : 'Download PNG'}
+            </button>
+            {pngDownload.state.status === 'error' && (
+              <p className="download-error" role="alert">
+                {pngDownload.state.message}
+              </p>
+            )}
+          </div>
         </div>
       )}
 

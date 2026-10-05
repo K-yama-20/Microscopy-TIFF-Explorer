@@ -21,6 +21,11 @@ export class ApiClientError extends Error {
   }
 }
 
+export interface DownloadedPng {
+  blob: Blob
+  filename: string
+}
+
 function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
   if (!value || typeof value !== 'object' || !('error' in value)) {
     return false
@@ -105,6 +110,49 @@ async function readJson(response: Response): Promise<unknown> {
   } catch {
     return null
   }
+}
+
+function safeDownloadFilename(contentDisposition: string | null): string {
+  if (!contentDisposition) {
+    return 'image.png'
+  }
+
+  const extendedMatch = contentDisposition.match(
+    /(?:^|;)\s*filename\*=UTF-8''([^;]+)/i,
+  )
+  const quotedMatch = contentDisposition.match(/(?:^|;)\s*filename="([^"]*)"/i)
+  const unquotedMatch = contentDisposition.match(
+    /(?:^|;)\s*filename=([^;\s]*)/i,
+  )
+  let candidate = extendedMatch?.[1] ?? quotedMatch?.[1] ?? unquotedMatch?.[1]
+
+  if (extendedMatch && candidate) {
+    try {
+      candidate = decodeURIComponent(candidate)
+    } catch {
+      return 'image.png'
+    }
+  }
+
+  if (!candidate) {
+    return 'image.png'
+  }
+
+  const basename = candidate.replaceAll('\\', '/').split('/').at(-1) ?? ''
+  const withoutControls = Array.from(basename, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0
+    return codePoint <= 31 || codePoint === 127 ? '_' : character
+  }).join('')
+  const sanitized = withoutControls
+    .replace(/["<>:|?*]/g, '_')
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/^[._-]+|[._-]+$/g, '')
+
+  if (!sanitized || !sanitized.toLowerCase().endsWith('.png')) {
+    return 'image.png'
+  }
+
+  return sanitized
 }
 
 export async function uploadTiff(
@@ -203,4 +251,58 @@ export async function fetchTiffPreview(
   }
 
   return response.blob()
+}
+
+export async function downloadTiffPng(
+  fileId: string,
+  selection: PreviewSelection,
+  signal?: AbortSignal,
+): Promise<DownloadedPng> {
+  const query = new URLSearchParams({
+    t: String(selection.t),
+    z: String(selection.z),
+    c: String(selection.c),
+    component: selection.component ?? 'composite',
+  })
+
+  let response: Response
+  try {
+    response = await fetch(
+      `${API_BASE_URL}/api/tiff/${encodeURIComponent(fileId)}/export/png?${query}`,
+      { signal },
+    )
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error
+    }
+
+    throw new ApiClientError(
+      'NETWORK_ERROR',
+      'Could not reach the PNG export service. Please try again.',
+    )
+  }
+
+  if (!response.ok) {
+    const payload = await readJson(response)
+    if (isApiErrorResponse(payload)) {
+      throw new ApiClientError(payload.error.code, payload.error.message)
+    }
+
+    throw new ApiClientError(
+      'PROCESSING_ERROR',
+      'The PNG export could not be generated. Please try again.',
+    )
+  }
+
+  if (!response.headers.get('Content-Type')?.startsWith('image/png')) {
+    throw new ApiClientError(
+      'INVALID_RESPONSE',
+      'The PNG export service returned an unexpected response. Please try again.',
+    )
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: safeDownloadFilename(response.headers.get('Content-Disposition')),
+  }
 }

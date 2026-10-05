@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Request, Response
 
 from app.models.errors import ApiServiceError, ErrorResponse, FileNotFoundError
+from app.services.export_filenames import build_png_export_filename
 from app.services.plane_rendering import render_tiff_plane_png
 from app.services.temporary_files import TemporaryFileManager
 
@@ -12,25 +13,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/tiff", tags=["tiff"])
 
 
-class ProcessingError(ApiServiceError):
+class ExportProcessingError(ApiServiceError):
     def __init__(self) -> None:
         super().__init__(
             code="PROCESSING_ERROR",
-            message="The image preview could not be generated.",
+            message="The PNG export could not be generated.",
             status_code=500,
         )
 
 
 @router.get(
-    "/{file_id}/preview",
+    "/{file_id}/export/png",
     responses={
-        200: {"content": {"image/png": {}}, "description": "PNG preview."},
+        200: {"content": {"image/png": {}}, "description": "PNG download."},
         404: {"model": ErrorResponse, "description": "Upload not found."},
         422: {"model": ErrorResponse, "description": "Invalid selection."},
-        500: {"model": ErrorResponse, "description": "Preview processing failed."},
+        500: {"model": ErrorResponse, "description": "PNG export failed."},
     },
 )
-def preview_tiff(
+def export_tiff_png(
     file_id: str,
     request: Request,
     t: int = 0,
@@ -38,7 +39,7 @@ def preview_tiff(
     c: int = 0,
     component: str = "composite",
 ) -> Response:
-    """Extract, normalize, and encode one TIFF plane as an uncached PNG."""
+    """Return one TIFF selection as an in-memory PNG attachment."""
     try:
         parsed_file_id = UUID(file_id)
     except ValueError:
@@ -57,16 +58,25 @@ def preview_tiff(
             c=c,
             component=component,
         )
+        filename = build_png_export_filename(
+            upload.filename,
+            t=t,
+            z=z,
+            c=c,
+            component=rendered.component,
+            is_rgb=rendered.is_rgb,
+        )
     except ApiServiceError:
         raise
     except Exception:
-        logger.exception("TIFF preview processing failed")
-        raise ProcessingError from None
+        logger.exception("TIFF PNG export processing failed")
+        raise ExportProcessingError from None
 
     return Response(
         content=rendered.content,
         media_type="image/png",
         headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-store, private",
             "Pragma": "no-cache",
             "X-Content-Type-Options": "nosniff",

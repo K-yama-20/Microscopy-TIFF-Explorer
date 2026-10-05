@@ -4,7 +4,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiClientError } from '../api/client'
+import { ApiClientError, type DownloadedPng } from '../api/client'
+import type { DownloadTiffPngFunction } from '../hooks/useTiffPngDownload'
 import type { PreviewTiffFunction } from '../hooks/useTiffPreview'
 import type { UploadTiffFunction } from '../hooks/useTiffUpload'
 import type { TiffMetadata, UploadTiffResponse } from '../types/api'
@@ -150,6 +151,7 @@ describe('TiffUpload', () => {
     container.remove()
     testEnvironment.IS_REACT_ACT_ENVIRONMENT = false
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
   it('shows and clears the visual dragging state', () => {
@@ -412,6 +414,149 @@ describe('TiffUpload', () => {
       { t: 1, z: 2, c: 3, component: 'composite' },
       expect.any(AbortSignal),
     )
+  })
+
+  it('downloads the current T/Z/C/component without changing selection', async () => {
+    const uploadFile: UploadTiffFunction = vi.fn().mockResolvedValue(
+      successfulUpload('rgb.tif', {
+        shape: [2, 3, 4, 5, 7, 3],
+        axes: 'TZCYXS',
+        dtype: 'uint8',
+        is_rgb: true,
+        sample_count: 3,
+        rgb_components: ['red', 'green', 'blue'],
+      }),
+    )
+    const downloadPng: DownloadTiffPngFunction = vi.fn().mockResolvedValue({
+      blob: new Blob(['png'], { type: 'image/png' }),
+      filename: 'rgb_T001_Z002_C003_G.png',
+    })
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined)
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} downloadPng={downloadPng} />,
+      ),
+    )
+    await selectAndUpload(container)
+    await act(async () => changeSelect(getSelectByLabel(container, 'Time')!, 1))
+    await act(async () => changeSelect(getSelectByLabel(container, 'Z')!, 2))
+    await act(async () =>
+      changeSelect(getSelectByLabel(container, 'Channel')!, 3),
+    )
+    await act(async () =>
+      changeSelectValue(
+        getSelectByLabel(container, 'Color component')!,
+        'green',
+      ),
+    )
+    vi.mocked(URL.createObjectURL).mockReturnValueOnce('blob:download')
+
+    await act(async () => findButton(container, 'Download PNG')?.click())
+
+    expect(downloadPng).toHaveBeenCalledOnce()
+    expect(downloadPng).toHaveBeenCalledWith(
+      '95ed59ce-198b-4f17-89da-74e17d457df3',
+      { t: 1, z: 2, c: 3, component: 'green' },
+      expect.any(AbortSignal),
+    )
+    const anchor = anchorClick.mock.instances[0] as unknown as HTMLAnchorElement
+    expect(anchor.download).toBe('rgb_T001_Z002_C003_G.png')
+    expect(anchor.href).toBe('blob:download')
+    expect(document.body.contains(anchor)).toBe(false)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:download')
+    expect(getSelectByLabel(container, 'Time')?.value).toBe('1')
+    expect(getSelectByLabel(container, 'Z')?.value).toBe('2')
+    expect(getSelectByLabel(container, 'Channel')?.value).toBe('3')
+    expect(getSelectByLabel(container, 'Color component')?.value).toBe('green')
+    expect(findButton(container, 'Download PNG')).toBeDefined()
+  })
+
+  it('shows downloading state, prevents duplicate requests, and reports errors', async () => {
+    let rejectDownload: ((error: unknown) => void) | undefined
+    const pendingDownload = new Promise<never>((_resolve, reject) => {
+      rejectDownload = reject
+    })
+    const downloadPng: DownloadTiffPngFunction = vi
+      .fn()
+      .mockReturnValue(pendingDownload)
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} downloadPng={downloadPng} />,
+      ),
+    )
+    await selectAndUpload(container)
+
+    act(() => findButton(container, 'Download PNG')?.click())
+    const downloadingButton = findButton(container, 'Downloading…')
+    expect(downloadingButton?.disabled).toBe(true)
+    act(() => downloadingButton?.click())
+    expect(downloadPng).toHaveBeenCalledOnce()
+
+    await act(async () =>
+      rejectDownload?.(
+        new ApiClientError('PROCESSING_ERROR', 'Download failed safely.'),
+      ),
+    )
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'Download failed safely.',
+    )
+    expect(findButton(container, 'Download PNG')?.disabled).toBe(false)
+  })
+
+  it('clears download errors and aborts work for replacement, Reset, and Clear', async () => {
+    let pendingSignal: AbortSignal | undefined
+    const downloadPng: DownloadTiffPngFunction = vi.fn(
+      (_fileId, _selection, signal) => {
+        pendingSignal = signal
+        return Promise.reject(
+          new ApiClientError('PROCESSING_ERROR', 'Download failed safely.'),
+        )
+      },
+    )
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} downloadPng={downloadPng} />,
+      ),
+    )
+    await selectAndUpload(container)
+    await act(async () => findButton(container, 'Download PNG')?.click())
+    expect(container.textContent).toContain('Download failed safely.')
+
+    act(() =>
+      dispatchDragEvent(getDropzone(container), 'drop', [
+        createFile('replacement.tif'),
+      ]),
+    )
+    expect(container.textContent).not.toContain('Download failed safely.')
+
+    await act(async () => findButton(container, 'Upload TIFF')?.click())
+    const neverSettles: DownloadTiffPngFunction = vi.fn(
+      (_fileId, _selection, signal) => {
+        pendingSignal = signal
+        return new Promise<DownloadedPng>(() => undefined)
+      },
+    )
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} downloadPng={neverSettles} />,
+      ),
+    )
+    act(() => findButton(container, 'Download PNG')?.click())
+    act(() => findButton(container, 'Reset')?.click())
+    expect(pendingSignal?.aborted).toBe(true)
+
+    await selectAndUpload(container, 'after-reset.tif')
+    act(() => findButton(container, 'Download PNG')?.click())
+    act(() => findButton(container, 'Clear')?.click())
+    expect(pendingSignal?.aborted).toBe(true)
   })
 
   it('shows preview loading, success, and structured API errors', async () => {
