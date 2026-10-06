@@ -28,6 +28,18 @@ export interface PreviewSelection {
   component?: RgbComponent
 }
 
+export interface PinnedSelection {
+  readonly id: string
+  readonly file_id: string
+  readonly filename: string
+  readonly is_rgb: boolean
+  readonly t: number
+  readonly z: number
+  readonly c: number
+  readonly component: RgbComponent
+  readonly addition_order: number
+}
+
 export interface UploadTiffResponse {
   file_id: string
   filename: string

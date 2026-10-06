@@ -6,7 +6,7 @@ import {
   useState,
 } from 'react'
 
-import type { RgbComponent } from '../types/api'
+import type { PinnedSelection, RgbComponent } from '../types/api'
 import {
   type DownloadTiffPngFunction,
   useTiffPngDownload,
@@ -27,10 +27,17 @@ import {
   selectTiffFile,
   type TiffFileSelectionState,
 } from '../utils/tiffFile'
+import {
+  createPinnedSelection,
+  getPinnedSelectionId,
+  hasPinnedSelection,
+  type PinnedSelectionCandidate,
+} from '../utils/pinnedSelection'
 import { TiffDimensionSelectors } from './TiffDimensionSelectors'
 import { TiffColorComponentSelector } from './TiffColorComponentSelector'
 import { TiffMetadataPanel } from './TiffMetadataPanel'
 import { TiffPreview } from './TiffPreview'
+import { TiffSelectionTray } from './TiffSelectionTray'
 
 interface TiffUploadProps {
   uploadFile?: UploadTiffFunction
@@ -50,6 +57,8 @@ export function TiffUpload({
   downloadZip,
 }: TiffUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const nextAdditionOrder = useRef(1)
+  const pinnedSelectionIds = useRef(new Set<string>())
   const [selection, setSelection] = useState<TiffFileSelectionState>(
     clearTiffFileSelection,
   )
@@ -59,6 +68,10 @@ export function TiffUpload({
   const [selectedC, setSelectedC] = useState(0)
   const [selectedComponent, setSelectedComponent] =
     useState<RgbComponent>('composite')
+  const [pinnedSelections, setPinnedSelections] = useState<
+    readonly PinnedSelection[]
+  >([])
+  const [selectionAnnouncement, setSelectionAnnouncement] = useState('')
   const upload = useTiffUpload(uploadFile)
   const successfulUpload =
     upload.state.status === 'success' ? upload.state.upload : undefined
@@ -89,6 +102,21 @@ export function TiffUpload({
     },
     downloadZip,
   )
+  const currentPinnedCandidate: PinnedSelectionCandidate | undefined =
+    successfulUpload
+      ? {
+          file_id: successfulUpload.file_id,
+          filename: successfulUpload.filename,
+          is_rgb: successfulUpload.metadata.is_rgb,
+          t: selectedT,
+          z: selectedZ,
+          c: selectedC,
+          component: selectedComponent,
+        }
+      : undefined
+  const isCurrentSelectionPinned = currentPinnedCandidate
+    ? hasPinnedSelection(pinnedSelections, currentPinnedCandidate)
+    : false
 
   const chooseFile = () => inputRef.current?.click()
 
@@ -99,9 +127,17 @@ export function TiffUpload({
     setSelectedComponent('composite')
   }
 
+  const clearPinnedSelections = () => {
+    setPinnedSelections([])
+    pinnedSelectionIds.current.clear()
+    nextAdditionOrder.current = 1
+    setSelectionAnnouncement('')
+  }
+
   const handleFile = (file: File) => {
     upload.reset()
     resetDimensionSelections()
+    clearPinnedSelections()
     setSelection(selectTiffFile(file))
     setIsDragging(false)
   }
@@ -150,6 +186,7 @@ export function TiffUpload({
   const handleClear = () => {
     upload.reset()
     resetDimensionSelections()
+    clearPinnedSelections()
     setSelection(clearTiffFileSelection())
     setIsDragging(false)
 
@@ -161,8 +198,60 @@ export function TiffUpload({
   const handleUpload = async () => {
     if (selection.file && upload.state.status !== 'uploading') {
       resetDimensionSelections()
+      clearPinnedSelections()
       await upload.startUpload(selection.file)
     }
+  }
+
+  const handleAddSelection = () => {
+    if (!currentPinnedCandidate || isCurrentSelectionPinned) {
+      return
+    }
+
+    const selectionId = getPinnedSelectionId(currentPinnedCandidate)
+    if (pinnedSelectionIds.current.has(selectionId)) {
+      return
+    }
+
+    const pinnedSelection = createPinnedSelection(
+      currentPinnedCandidate,
+      nextAdditionOrder.current,
+    )
+    pinnedSelectionIds.current.add(selectionId)
+    nextAdditionOrder.current += 1
+    setPinnedSelections((current) => [...current, pinnedSelection])
+    setSelectionAnnouncement(
+      `Added T ${pinnedSelection.t}, Z ${pinnedSelection.z}, C ${pinnedSelection.c} to selected images.`,
+    )
+  }
+
+  const handleActivateSelection = (pinnedSelection: PinnedSelection) => {
+    if (pinnedSelection.file_id !== successfulUpload?.file_id) {
+      return
+    }
+
+    setSelectedT(pinnedSelection.t)
+    setSelectedZ(pinnedSelection.z)
+    setSelectedC(pinnedSelection.c)
+    setSelectedComponent(pinnedSelection.component)
+    setSelectionAnnouncement(
+      `Restored T ${pinnedSelection.t}, Z ${pinnedSelection.z}, C ${pinnedSelection.c} to the main preview.`,
+    )
+  }
+
+  const handleRemoveSelection = (selectionId: string) => {
+    pinnedSelectionIds.current.delete(selectionId)
+    setPinnedSelections((current) =>
+      current.filter((pinnedSelection) => pinnedSelection.id !== selectionId),
+    )
+    setSelectionAnnouncement('Removed the image from selected images.')
+  }
+
+  const handleClearAllSelections = () => {
+    setPinnedSelections([])
+    pinnedSelectionIds.current.clear()
+    nextAdditionOrder.current = 1
+    setSelectionAnnouncement('Cleared all selected images.')
   }
 
   const descriptionIds = [
@@ -284,6 +373,23 @@ export function TiffUpload({
                     onChange={setSelectedComponent}
                   />
                 )}
+                <div className="selection-pin-control">
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={
+                      preview.status !== 'success' || isCurrentSelectionPinned
+                    }
+                    onClick={handleAddSelection}
+                  >
+                    {isCurrentSelectionPinned
+                      ? 'Already selected'
+                      : 'Add to selection'}
+                  </button>
+                  <p className="selection-announcement" aria-live="polite">
+                    {selectionAnnouncement}
+                  </p>
+                </div>
               </div>
             </div>
             <div className="workflow-column workflow-column--visual">
@@ -363,6 +469,14 @@ export function TiffUpload({
               </div>
             </div>
           </div>
+          <TiffSelectionTray
+            selections={pinnedSelections}
+            onActivate={handleActivateSelection}
+            onRemove={handleRemoveSelection}
+            onClear={handleClearAllSelections}
+            previewFile={previewFile}
+            downloadPng={downloadPng}
+          />
         </div>
       )}
 

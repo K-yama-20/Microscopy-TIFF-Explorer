@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import tifffile
+from PIL import Image
 
 from app.services.normalization import normalize_to_uint8
 from app.services.plane_extraction import (
@@ -28,6 +29,7 @@ def render_array_plane_png(
     z: int = 0,
     c: int = 0,
     component: RgbComponent | str = RgbComponent.COMPOSITE,
+    max_size: int | None = None,
 ) -> RenderedPng:
     """Render one plane from an already loaded primary-series array."""
     plane = extract_plane(
@@ -39,6 +41,19 @@ def render_array_plane_png(
         component=component,
     )
     normalized = normalize_to_uint8(plane)
+    if max_size is not None:
+        height, width = normalized.shape[:2]
+        longest_edge = max(height, width)
+        if longest_edge > max_size:
+            scale = max_size / longest_edge
+            resized_width = max(1, round(width * scale))
+            resized_height = max(1, round(height * scale))
+            normalized = np.asarray(
+                Image.fromarray(normalized).resize(
+                    (resized_width, resized_height),
+                    Image.Resampling.LANCZOS,
+                )
+            ).copy()
     selected_component = (
         component
         if isinstance(component, RgbComponent)
@@ -65,6 +80,7 @@ def render_tiff_plane_png(
     z: int = 0,
     c: int = 0,
     component: str = "composite",
+    max_size: int | None = None,
 ) -> RenderedPng:
     """Render one semantic TIFF selection as a canonical, normalized PNG."""
     with tifffile.TiffFile(path) as tif:
@@ -90,4 +106,5 @@ def render_tiff_plane_png(
         z=z,
         c=c,
         component=selected_component,
+        max_size=max_size,
     )

@@ -1,7 +1,8 @@
 import logging
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Query, Request, Response
 
 from app.models.errors import (
     ApiServiceError,
@@ -15,6 +16,8 @@ from app.services.temporary_files import TemporaryFileManager
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tiff", tags=["tiff"])
+
+MAX_PREVIEW_SIZE = 4096
 
 
 @router.get(
@@ -33,6 +36,7 @@ def preview_tiff(
     z: int = 0,
     c: int = 0,
     component: str = "composite",
+    max_size: Annotated[int | None, Query(ge=1, le=MAX_PREVIEW_SIZE)] = None,
 ) -> Response:
     """Extract, normalize, and encode one TIFF plane as an uncached PNG."""
     try:
@@ -52,6 +56,7 @@ def preview_tiff(
                 z=z,
                 c=c,
                 component=component,
+                max_size=max_size,
             )
         except ApiServiceError:
             raise
