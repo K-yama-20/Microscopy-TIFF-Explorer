@@ -7,6 +7,7 @@ export type PreviewTiffFunction = (
   fileId: string,
   selection: PreviewSelection,
   signal?: AbortSignal,
+  maxSize?: number,
 ) => Promise<Blob>
 
 export type TiffPreviewState =
@@ -17,6 +18,7 @@ export type TiffPreviewState =
 
 interface UseTiffPreviewOptions extends PreviewSelection {
   fileId?: string
+  maxSize?: number
 }
 
 const IDLE_PREVIEW_STATE: TiffPreviewState = { status: 'idle' }
@@ -30,7 +32,7 @@ function getPreviewErrorMessage(error: unknown): string {
 }
 
 export function useTiffPreview(
-  { fileId, t, z, c, component = 'composite' }: UseTiffPreviewOptions,
+  { fileId, t, z, c, component = 'composite', maxSize }: UseTiffPreviewOptions,
   previewFile: PreviewTiffFunction = fetchTiffPreview,
 ) {
   const [state, setState] = useState<TiffPreviewState>(IDLE_PREVIEW_STATE)
@@ -61,7 +63,17 @@ export function useTiffPreview(
     activeRequest.current = request
     setState({ status: 'loading' })
 
-    void previewFile(fileId, { t, z, c, component }, request.controller.signal)
+    const previewPromise =
+      maxSize === undefined
+        ? previewFile(fileId, { t, z, c, component }, request.controller.signal)
+        : previewFile(
+            fileId,
+            { t, z, c, component },
+            request.controller.signal,
+            maxSize,
+          )
+
+    void previewPromise
       .then((blob) => {
         if (activeRequest.current?.id !== request.id) {
           return
@@ -93,7 +105,7 @@ export function useTiffPreview(
         activeRequest.current = undefined
       }
     }
-  }, [c, component, fileId, previewFile, t, z])
+  }, [c, component, fileId, maxSize, previewFile, t, z])
 
   useEffect(
     () => () => {

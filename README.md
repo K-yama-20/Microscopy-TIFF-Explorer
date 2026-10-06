@@ -4,7 +4,8 @@ Microscopy TIFF Explorer is a browser-based MVP for inspecting multidimensional
 microscopy TIFF files. It uploads one TIFF to temporary server storage, shows
 primary-series metadata, lets the user choose microscopy Time/Z/Channel and RGB
 color components, previews the selected plane, downloads it as PNG, and exports
-the complete T/Z/C stack as ZIP.
+the complete T/Z/C stack as ZIP. Multiple planes from the active TIFF can also
+be pinned in an ordered thumbnail tray for later review and individual export.
 
 There is no account, database, upload history, or persistent file storage.
 
@@ -18,6 +19,9 @@ There is no account, database, upload history, or persistent file storage.
 - Metadata-confirmed RGB in interleaved `YXS`, planar `SYX`, and compatible
   T/Z/C combinations.
 - RGB composite plus Red, Green, and Blue grayscale component views.
+- An immutable single-TIFF selection tray with 240-pixel thumbnails, exact
+  duplicate prevention, selection restoration, removal, and individual PNG
+  downloads.
 - Matching preview and PNG/ZIP output through shared extraction,
   canonicalization, normalization, and PNG encoding services.
 - Automatic temporary-upload expiration after 30 minutes by default.
@@ -100,26 +104,32 @@ Open `http://localhost:5173`. The default backend is
 3. Choose available Time, Z, and microscopy Channel positions.
 4. For an RGB TIFF, separately choose RGB composite, Red, Green, or Blue.
 5. Review the live preview.
-6. Select **Download PNG** for the current plane.
-7. Select **Export Stack as ZIP** for all T/Z/C planes in the current RGB
+6. Select **Add to selection** to pin the current coordinates and RGB component;
+   select a thumbnail later to restore that exact view.
+7. Download or remove individual pinned images, or clear the tray.
+8. Select **Download PNG** for the current plane.
+9. Select **Export Stack as ZIP** for all T/Z/C planes in the current RGB
    component mode.
 
 Replacing, clearing, or resetting a file restores T/Z/C to zero, restores RGB
-mode to composite, aborts stale browser requests, and releases browser object
-URLs.
+mode to composite, clears pinned selections, aborts stale browser requests, and
+releases browser object URLs.
 
 ## API
 
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| `GET` | `/health` | Deployment readiness check |
-| `POST` | `/api/tiff/upload` | Validate, temporarily store, and inspect a TIFF |
-| `GET` | `/api/tiff/{file_id}/preview?t=0&z=0&c=0&component=composite` | Preview one plane as PNG |
-| `GET` | `/api/tiff/{file_id}/export/png?t=0&z=0&c=0&component=composite` | Download one plane as PNG |
-| `GET` | `/api/tiff/{file_id}/export/zip?component=composite` | Download all T/Z/C planes as ZIP |
+| Method | Endpoint                                                                   | Purpose                                                          |
+| ------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `GET`  | `/health`                                                                  | Deployment readiness check                                       |
+| `POST` | `/api/tiff/upload`                                                         | Validate, temporarily store, and inspect a TIFF                  |
+| `GET`  | `/api/tiff/{file_id}/preview?t=0&z=0&c=0&component=composite&max_size=240` | Preview one plane as PNG, optionally bounded by its longest edge |
+| `GET`  | `/api/tiff/{file_id}/export/png?t=0&z=0&c=0&component=composite`           | Download one plane as PNG                                        |
+| `GET`  | `/api/tiff/{file_id}/export/zip?component=composite`                       | Download all T/Z/C planes as ZIP                                 |
 
 `component` accepts `composite`, `red`, `green`, or `blue`. Omission is
 backward-compatible and means `composite`. R/G/B is invalid for non-RGB data.
+`max_size` is optional and accepts `1` through `4096`; omission preserves the
+full-size preview. Resizing occurs only after normal extraction and
+normalization, never enlarges the image, and does not affect PNG or ZIP exports.
 
 All API errors use this envelope:
 
@@ -132,28 +142,28 @@ All API errors use this envelope:
 }
 ```
 
-| Code | Meaning |
-| --- | --- |
-| `INVALID_FILE_TYPE` | Filename extension is not `.tif` or `.tiff` |
-| `FILE_TOO_LARGE` | Upload exceeds the configured maximum |
-| `INVALID_TIFF` | Content cannot be parsed as TIFF |
-| `UNSUPPORTED_DTYPE` | Pixel type is not `uint8` or `uint16` |
-| `UNSUPPORTED_AXES` | Axes or sample model is missing, ambiguous, or unsupported |
-| `FILE_NOT_FOUND` | `file_id` is unknown, expired, deleted, or unavailable |
-| `INVALID_DIMENSION_INDEX` | T, Z, or C is outside the available range |
-| `INVALID_RGB_COMPONENT` | Component is unknown or not valid for this image |
-| `PROCESSING_ERROR` | Preview/export or another unexpected operation failed safely |
-| `INVALID_REQUEST` | Required input is missing or a request parameter is malformed |
+| Code                      | Meaning                                                       |
+| ------------------------- | ------------------------------------------------------------- |
+| `INVALID_FILE_TYPE`       | Filename extension is not `.tif` or `.tiff`                   |
+| `FILE_TOO_LARGE`          | Upload exceeds the configured maximum                         |
+| `INVALID_TIFF`            | Content cannot be parsed as TIFF                              |
+| `UNSUPPORTED_DTYPE`       | Pixel type is not `uint8` or `uint16`                         |
+| `UNSUPPORTED_AXES`        | Axes or sample model is missing, ambiguous, or unsupported    |
+| `FILE_NOT_FOUND`          | `file_id` is unknown, expired, deleted, or unavailable        |
+| `INVALID_DIMENSION_INDEX` | T, Z, or C is outside the available range                     |
+| `INVALID_RGB_COMPONENT`   | Component is unknown or not valid for this image              |
+| `PROCESSING_ERROR`        | Preview/export or another unexpected operation failed safely  |
+| `INVALID_REQUEST`         | Required input is missing or a request parameter is malformed |
 
 ## Runtime configuration
 
-| Variable | Type | Default | Notes |
-| --- | --- | --- | --- |
-| `VITE_API_BASE_URL` | URL string | `http://localhost:8000` | Frontend build-time backend origin; omit trailing slash |
-| `ALLOWED_ORIGINS` | comma-separated origins | local Vite origins | Exact browser origins only; wildcard is rejected and trailing slashes are normalized |
-| `MAX_UPLOAD_SIZE_MB` | positive integer | `100` | Backend upload limit; frontend currently validates against the same MVP limit |
-| `TEMP_FILE_TTL_MINUTES` | positive number | `30` | Temporary TIFF lifetime |
-| `TEMP_STORAGE_DIR` | directory path | OS temp + `microscopy-tiff-explorer` | Must be ephemeral in production |
+| Variable                | Type                    | Default                              | Notes                                                                                |
+| ----------------------- | ----------------------- | ------------------------------------ | ------------------------------------------------------------------------------------ |
+| `VITE_API_BASE_URL`     | URL string              | `http://localhost:8000`              | Frontend build-time backend origin; omit trailing slash                              |
+| `ALLOWED_ORIGINS`       | comma-separated origins | local Vite origins                   | Exact browser origins only; wildcard is rejected and trailing slashes are normalized |
+| `MAX_UPLOAD_SIZE_MB`    | positive integer        | `100`                                | Backend upload limit; frontend currently validates against the same MVP limit        |
+| `TEMP_FILE_TTL_MINUTES` | positive number         | `30`                                 | Temporary TIFF lifetime                                                              |
+| `TEMP_STORAGE_DIR`      | directory path          | OS temp + `microscopy-tiff-explorer` | Must be ephemeral in production                                                      |
 
 Invalid numeric configuration fails startup with a clear configuration error.
 Do not put credentials in these files or variables; the application needs no

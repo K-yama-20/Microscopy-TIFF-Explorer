@@ -216,6 +216,7 @@ export async function fetchTiffPreview(
   fileId: string,
   selection: PreviewSelection,
   signal?: AbortSignal,
+  maxSize?: number,
 ): Promise<Blob> {
   const query = new URLSearchParams({
     t: String(selection.t),
@@ -223,6 +224,9 @@ export async function fetchTiffPreview(
     c: String(selection.c),
     component: selection.component ?? 'composite',
   })
+  if (maxSize !== undefined) {
+    query.set('max_size', String(maxSize))
+  }
 
   let response: Response
   try {

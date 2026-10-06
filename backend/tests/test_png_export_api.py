@@ -244,6 +244,25 @@ def test_export_pixels_match_preview_for_the_same_selection(
     np.testing.assert_array_equal(export_pixels, preview_pixels)
 
 
+def test_thumbnail_preview_does_not_change_png_export_resolution(
+    tmp_path: Path,
+) -> None:
+    array = np.arange(300 * 600, dtype=np.uint16).reshape(300, 600)
+    thumbnail, exported = upload_and_get(
+        make_app(tmp_path),
+        make_tiff_bytes(array, "YX"),
+        paths=(
+            "/api/tiff/{file_id}/preview?max_size=240",
+            "/api/tiff/{file_id}/export/png",
+        ),
+    )
+
+    _, thumbnail_pixels = decode_png(thumbnail)
+    _, export_pixels = decode_png(exported)
+    assert thumbnail_pixels.shape == (120, 240)
+    assert export_pixels.shape == (300, 600)
+
+
 @pytest.mark.parametrize(
     "query",
     ["?t=-1", "?z=1", "?c=1"],

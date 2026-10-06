@@ -186,6 +186,25 @@ describe('fetchTiffPreview', () => {
     expect(fetchMock.mock.calls[0][0]).toMatch(/component=blue$/)
   })
 
+  it('includes max_size only for a bounded thumbnail request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new Blob(['png']), {
+        status: 200,
+        headers: { 'Content-Type': 'image/png' },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchTiffPreview(
+      'file-id',
+      { t: 0, z: 1, c: 2, component: 'green' },
+      undefined,
+      240,
+    )
+
+    expect(fetchMock.mock.calls[0][0]).toMatch(/component=green&max_size=240$/)
+  })
+
   it('turns a structured preview error into a client error', async () => {
     vi.stubGlobal(
       'fetch',

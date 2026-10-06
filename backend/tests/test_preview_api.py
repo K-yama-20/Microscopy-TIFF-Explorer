@@ -108,6 +108,89 @@ def test_previews_lzw_compressed_tiff(tmp_path: Path) -> None:
     np.testing.assert_array_equal(decoded, array)
 
 
+def test_preview_without_max_size_preserves_original_dimensions(
+    tmp_path: Path,
+) -> None:
+    array = np.arange(180 * 320, dtype=np.uint16).reshape(180, 320)
+
+    _, preview = upload_and_preview(
+        make_app(tmp_path),
+        make_tiff_bytes(array, "YX"),
+    )
+
+    image, decoded = png_array(preview)
+    assert preview.status_code == 200
+    assert image.size == (320, 180)
+    assert decoded.shape == (180, 320)
+
+
+@pytest.mark.parametrize(
+    ("shape", "expected_size"),
+    [
+        ((300, 600), (240, 120)),
+        ((600, 300), (120, 240)),
+        ((120, 180), (180, 120)),
+    ],
+)
+def test_preview_max_size_downscales_without_upscaling_and_preserves_aspect_ratio(
+    tmp_path: Path,
+    shape: tuple[int, int],
+    expected_size: tuple[int, int],
+) -> None:
+    array = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+
+    _, preview = upload_and_preview(
+        make_app(tmp_path),
+        make_tiff_bytes(array, "YX"),
+        "?max_size=240",
+    )
+
+    image, _ = png_array(preview)
+    assert preview.status_code == 200
+    assert image.size == expected_size
+
+
+def test_preview_max_size_preserves_rgb_composite_mode(tmp_path: Path) -> None:
+    array = np.arange(300 * 600 * 3, dtype=np.uint8).reshape(300, 600, 3)
+
+    _, preview = upload_and_preview(
+        make_app(tmp_path),
+        make_tiff_bytes(
+            array,
+            "YXS",
+            photometric="rgb",
+            planarconfig="contig",
+        ),
+        "?max_size=240",
+    )
+
+    image, decoded = png_array(preview)
+    assert preview.status_code == 200
+    assert image.mode == "RGB"
+    assert image.size == (240, 120)
+    assert decoded.shape == (120, 240, 3)
+
+
+@pytest.mark.parametrize("max_size", ["0", "-1", "4097", "not-a-number"])
+def test_rejects_invalid_preview_max_size(
+    tmp_path: Path,
+    max_size: str,
+) -> None:
+    _, response = upload_and_preview(
+        make_app(tmp_path),
+        make_tiff_bytes(np.zeros((5, 7), dtype=np.uint8), "YX"),
+        f"?max_size={max_size}",
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": {
+            "code": "INVALID_REQUEST",
+            "message": "The request contains invalid or missing parameters.",
+        }
+    }
+
+
 @pytest.mark.parametrize(
     ("axes", "shape", "planarconfig"),
     [
