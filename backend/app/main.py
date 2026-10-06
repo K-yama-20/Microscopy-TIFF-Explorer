@@ -9,6 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHttpException
 
 from app.api.png_export import router as png_export_router
 from app.api.preview import router as preview_router
+from app.api.selection_export import router as selection_export_router
 from app.api.upload import router as upload_router
 from app.api.zip_export import router as zip_export_router
 from app.core.config import Settings
@@ -104,6 +105,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(preview_router)
     application.include_router(png_export_router)
     application.include_router(zip_export_router)
+    application.include_router(selection_export_router)
 
     @application.get("/health", response_model=HealthResponse, tags=["system"])
     async def health() -> HealthResponse:

@@ -679,6 +679,14 @@ a {
   justify-content: space-between;
 }
 
+.selection-tray__batch-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .selection-tray__header h3 {
   margin: 0;
   color: #f4fbf8;
@@ -981,6 +989,15 @@ a {
 
   .download-panel {
     grid-template-columns: 1fr;
+  }
+
+  .selection-tray__header {
+    flex-direction: column;
+  }
+
+  .selection-tray__batch-actions,
+  .selection-tray__batch-download {
+    width: 100%;
   }
 }
 

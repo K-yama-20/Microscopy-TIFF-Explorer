@@ -4,7 +4,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { DownloadedPng } from '../api/client'
+import { ApiClientError, type DownloadedPng } from '../api/client'
+import type { DownloadSelectionZipFunction } from '../hooks/useSelectionZipDownload'
 import type { DownloadTiffPngFunction } from '../hooks/useTiffPngDownload'
 import type { PreviewTiffFunction } from '../hooks/useTiffPreview'
 import type { UploadTiffFunction } from '../hooks/useTiffUpload'
@@ -85,6 +86,9 @@ describe('single-TIFF selection tray', () => {
   let uploadFile: ReturnType<typeof vi.fn<UploadTiffFunction>>
   let previewFile: ReturnType<typeof vi.fn<PreviewTiffFunction>>
   let downloadPng: ReturnType<typeof vi.fn<DownloadTiffPngFunction>>
+  let downloadSelectionZip: ReturnType<
+    typeof vi.fn<DownloadSelectionZipFunction>
+  >
   let createdUrls: string[]
 
   beforeEach(() => {
@@ -103,6 +107,12 @@ describe('single-TIFF selection tray', () => {
       blob: new Blob(['export'], { type: 'image/png' }),
       filename: 'sample_T000_Z000_C000_RGB.png',
     } satisfies DownloadedPng)
+    downloadSelectionZip = vi
+      .fn<DownloadSelectionZipFunction>()
+      .mockResolvedValue({
+        blob: new Blob(['selection-export'], { type: 'application/zip' }),
+        filename: 'microscopy-selection.zip',
+      })
 
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
@@ -124,6 +134,7 @@ describe('single-TIFF selection tray', () => {
           uploadFile={uploadFile}
           previewFile={previewFile}
           downloadPng={downloadPng}
+          downloadSelectionZip={downloadSelectionZip}
         />,
       ),
     )
@@ -266,5 +277,109 @@ describe('single-TIFF selection tray', () => {
     act(() => root.unmount())
     isMounted = false
     expect(URL.revokeObjectURL).toHaveBeenCalledWith(unmountThumbnailUrl)
+  })
+
+  it('shows the selected count, skips empty requests, and downloads in addition order', async () => {
+    await chooseAndUpload(container)
+
+    const emptyDownload = findButton(container, 'Download selected (0) as ZIP')
+    expect(emptyDownload?.disabled).toBe(true)
+    act(() => emptyDownload?.click())
+    expect(downloadSelectionZip).not.toHaveBeenCalled()
+
+    await act(async () => findButton(container, 'Add to selection')?.click())
+    await changeSelect(getSelect(container, 'z-selector'), '1')
+    await changeSelect(getSelect(container, 'color-component-selector'), 'blue')
+    await act(async () => findButton(container, 'Add to selection')?.click())
+
+    const batchDownload = findButton(container, 'Download selected (2) as ZIP')
+    await act(async () => batchDownload?.click())
+
+    expect(downloadSelectionZip).toHaveBeenCalledWith(
+      [
+        {
+          file_id: '95ed59ce-198b-4f17-89da-74e17d457df3',
+          t: 0,
+          z: 0,
+          c: 0,
+          component: 'composite',
+        },
+        {
+          file_id: '95ed59ce-198b-4f17-89da-74e17d457df3',
+          t: 0,
+          z: 1,
+          c: 0,
+          component: 'blue',
+        },
+      ],
+      expect.any(AbortSignal),
+    )
+    const downloadUrl = createdUrls.at(-1)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(downloadUrl)
+    expect(document.body.querySelectorAll('a')).toHaveLength(0)
+    expect(container.querySelectorAll('.selection-tray__item')).toHaveLength(2)
+    expect(
+      findButton(container, 'Download selected (2) as ZIP')?.disabled,
+    ).toBe(false)
+  })
+
+  it('prevents duplicate batch actions and aborts on replacement, reset, and unmount', async () => {
+    let pendingSignal: AbortSignal | undefined
+    downloadSelectionZip.mockImplementation((_items, signal) => {
+      pendingSignal = signal
+      return new Promise(() => {})
+    })
+    await chooseAndUpload(container)
+    await act(async () => findButton(container, 'Add to selection')?.click())
+
+    act(() => findButton(container, 'Download selected (1) as ZIP')?.click())
+    const pendingButton = findButton(container, 'Preparing selected (1)…')
+    expect(pendingButton?.disabled).toBe(true)
+    act(() => pendingButton?.click())
+    expect(downloadSelectionZip).toHaveBeenCalledTimes(1)
+
+    const dropzone = container.querySelector<HTMLElement>('.dropzone')
+    const replacementDrop = new Event('drop', {
+      bubbles: true,
+      cancelable: true,
+    })
+    Object.defineProperty(replacementDrop, 'dataTransfer', {
+      value: {
+        files: [new File(['replacement'], 'replacement.tif')],
+        dropEffect: 'none',
+      },
+    })
+    act(() => dropzone?.dispatchEvent(replacementDrop))
+    expect(pendingSignal?.aborted).toBe(true)
+
+    await act(async () => findButton(container, 'Upload TIFF')?.click())
+    await act(async () => findButton(container, 'Add to selection')?.click())
+    act(() => findButton(container, 'Download selected (1) as ZIP')?.click())
+    const resetSignal = pendingSignal
+    act(() => findButton(container, 'Reset')?.click())
+    expect(resetSignal?.aborted).toBe(true)
+
+    await chooseAndUpload(container, 'after-reset.tif')
+    await act(async () => findButton(container, 'Add to selection')?.click())
+    act(() => findButton(container, 'Download selected (1) as ZIP')?.click())
+    const unmountSignal = pendingSignal
+    act(() => root.unmount())
+    isMounted = false
+    expect(unmountSignal?.aborted).toBe(true)
+  })
+
+  it('shows a structured selected-export error without clearing selections', async () => {
+    downloadSelectionZip.mockRejectedValue(
+      new ApiClientError('FILE_NOT_FOUND', 'The temporary TIFF expired.'),
+    )
+    await chooseAndUpload(container)
+    await act(async () => findButton(container, 'Add to selection')?.click())
+
+    await act(async () =>
+      findButton(container, 'Download selected (1) as ZIP')?.click(),
+    )
+
+    expect(container.textContent).toContain('The temporary TIFF expired.')
+    expect(container.querySelectorAll('.selection-tray__item')).toHaveLength(1)
   })
 })

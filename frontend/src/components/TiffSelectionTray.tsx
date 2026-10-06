@@ -1,5 +1,7 @@
 import type { DownloadTiffPngFunction } from '../hooks/useTiffPngDownload'
 import { useTiffPngDownload } from '../hooks/useTiffPngDownload'
+import type { DownloadSelectionZipFunction } from '../hooks/useSelectionZipDownload'
+import { useSelectionZipDownload } from '../hooks/useSelectionZipDownload'
 import type { PreviewTiffFunction } from '../hooks/useTiffPreview'
 import { useTiffPreview } from '../hooks/useTiffPreview'
 import type { PinnedSelection } from '../types/api'
@@ -12,6 +14,7 @@ interface TiffSelectionTrayProps {
   onClear: () => void
   previewFile?: PreviewTiffFunction
   downloadPng?: DownloadTiffPngFunction
+  downloadSelectionZip?: DownloadSelectionZipFunction
 }
 
 interface TiffSelectionTrayItemProps {
@@ -139,11 +142,15 @@ export function TiffSelectionTray({
   onClear,
   previewFile,
   downloadPng,
+  downloadSelectionZip,
 }: TiffSelectionTrayProps) {
+  const zipDownload = useSelectionZipDownload(selections, downloadSelectionZip)
+
   return (
     <section
       className="selection-tray workflow-section"
       aria-labelledby="selection-tray-title"
+      aria-busy={zipDownload.state.status === 'exporting'}
     >
       <div className="selection-tray__header">
         <div>
@@ -152,15 +159,41 @@ export function TiffSelectionTray({
             Pinned views stay unchanged while you browse other image planes.
           </p>
         </div>
-        <button
-          className="clear-button selection-tray__clear"
-          type="button"
-          disabled={selections.length === 0}
-          onClick={onClear}
-        >
-          Clear all
-        </button>
+        <div className="selection-tray__batch-actions">
+          <button
+            className="primary-button selection-tray__batch-download"
+            type="button"
+            disabled={
+              selections.length === 0 ||
+              zipDownload.state.status === 'exporting'
+            }
+            onClick={() => void zipDownload.startDownload()}
+          >
+            {zipDownload.state.status === 'exporting'
+              ? `Preparing selected (${selections.length})…`
+              : `Download selected (${selections.length}) as ZIP`}
+          </button>
+          <button
+            className="clear-button selection-tray__clear"
+            type="button"
+            disabled={selections.length === 0}
+            onClick={onClear}
+          >
+            Clear all
+          </button>
+        </div>
       </div>
+
+      {zipDownload.state.status === 'exporting' && (
+        <p className="operation-status" role="status" aria-live="polite">
+          Rendering and packaging the selected images…
+        </p>
+      )}
+      {zipDownload.state.status === 'error' && (
+        <p className="selection-tray__error" role="alert">
+          {zipDownload.state.message}
+        </p>
+      )}
 
       {selections.length === 0 ? (
         <p className="selection-tray__empty">

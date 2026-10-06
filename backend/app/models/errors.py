@@ -29,6 +29,33 @@ class ProcessingError(ApiServiceError):
         )
 
 
+class EmptySelectionError(ApiServiceError):
+    def __init__(self) -> None:
+        super().__init__(
+            code="EMPTY_SELECTION",
+            message="Choose at least one image to export.",
+            status_code=422,
+        )
+
+
+class BatchLimitExceededError(ApiServiceError):
+    def __init__(self) -> None:
+        super().__init__(
+            code="BATCH_LIMIT_EXCEEDED",
+            message="The selected export exceeds the allowed batch limits.",
+            status_code=422,
+        )
+
+
+class DuplicateSelectionError(ApiServiceError):
+    def __init__(self) -> None:
+        super().__init__(
+            code="DUPLICATE_SELECTION",
+            message="The selected export contains a duplicate image.",
+            status_code=422,
+        )
+
+
 class ErrorDetail(BaseModel):
     code: str
     message: str
