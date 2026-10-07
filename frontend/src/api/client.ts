@@ -3,6 +3,7 @@ import type {
   PreviewSelection,
   RgbComponent,
   RgbComponentName,
+  SelectionExportItem,
   TiffMetadata,
   UploadTiffResponse,
 } from '../types/api'
@@ -374,6 +375,58 @@ export async function downloadTiffZip(
       response.headers.get('Content-Disposition'),
       '.zip',
       'images.zip',
+    ),
+  }
+}
+
+export async function downloadSelectionZip(
+  items: readonly SelectionExportItem[],
+  signal?: AbortSignal,
+): Promise<DownloadedZip> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/api/exports/selection`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+      signal,
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error
+    }
+
+    throw new ApiClientError(
+      'NETWORK_ERROR',
+      'Could not reach the selected-image export service. Please try again.',
+    )
+  }
+
+  if (!response.ok) {
+    const payload = await readJson(response)
+    if (isApiErrorResponse(payload)) {
+      throw new ApiClientError(payload.error.code, payload.error.message)
+    }
+
+    throw new ApiClientError(
+      'PROCESSING_ERROR',
+      'The selected-image ZIP could not be generated. Please try again.',
+    )
+  }
+
+  if (!response.headers.get('Content-Type')?.startsWith('application/zip')) {
+    throw new ApiClientError(
+      'INVALID_RESPONSE',
+      'The selected-image export service returned an unexpected response. Please try again.',
+    )
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: safeDownloadFilename(
+      response.headers.get('Content-Disposition'),
+      '.zip',
+      'microscopy-selection.zip',
     ),
   }
 }

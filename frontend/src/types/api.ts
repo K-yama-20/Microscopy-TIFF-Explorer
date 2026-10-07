@@ -40,6 +40,14 @@ export interface PinnedSelection {
   readonly addition_order: number
 }
 
+export interface SelectionExportItem {
+  file_id: string
+  t: number
+  z: number
+  c: number
+  component: RgbComponent
+}
+
 export interface UploadTiffResponse {
   file_id: string
   filename: string

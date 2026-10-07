@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   ApiClientError,
+  downloadSelectionZip,
   downloadTiffPng,
   downloadTiffZip,
   fetchTiffPreview,
@@ -454,6 +455,81 @@ describe('downloadTiffZip', () => {
 
     await expect(downloadTiffZip('file-id')).rejects.toMatchObject({
       code: 'INVALID_RESPONSE',
+    })
+  })
+})
+
+describe('downloadSelectionZip', () => {
+  it('posts only ordered selection fields and returns the safe ZIP filename', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new Blob(['zip']), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Disposition':
+            'attachment; filename="microscopy-selection.zip"',
+        },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    const items = [
+      {
+        file_id: 'first-file',
+        t: 1,
+        z: 2,
+        c: 3,
+        component: 'composite' as const,
+      },
+      {
+        file_id: 'second-file',
+        t: 4,
+        z: 5,
+        c: 6,
+        component: 'blue' as const,
+      },
+    ]
+
+    const result = await downloadSelectionZip(items, controller.signal)
+
+    expect(result.filename).toBe('microscopy-selection.zip')
+    const [url, request] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toMatch(/\/api\/exports\/selection$/)
+    expect(request).toMatchObject({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+    })
+    expect(JSON.parse(request.body as string)).toEqual({ items })
+  })
+
+  it('uses structured errors and a safe fallback filename', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          Response.json(
+            { error: { code: 'EMPTY_SELECTION', message: 'Choose an image.' } },
+            { status: 422 },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(new Blob(['zip']), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/zip',
+              'Content-Disposition': 'attachment; filename="../../bad.txt"',
+            },
+          }),
+        ),
+    )
+
+    await expect(downloadSelectionZip([])).rejects.toEqual(
+      new ApiClientError('EMPTY_SELECTION', 'Choose an image.'),
+    )
+    await expect(downloadSelectionZip([])).resolves.toMatchObject({
+      filename: 'microscopy-selection.zip',
     })
   })
 })

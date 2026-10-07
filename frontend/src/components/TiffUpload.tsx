@@ -7,6 +7,7 @@ import {
 } from 'react'
 
 import type { PinnedSelection, RgbComponent } from '../types/api'
+import type { DownloadSelectionZipFunction } from '../hooks/useSelectionZipDownload'
 import {
   type DownloadTiffPngFunction,
   useTiffPngDownload,
@@ -44,6 +45,7 @@ interface TiffUploadProps {
   previewFile?: PreviewTiffFunction
   downloadPng?: DownloadTiffPngFunction
   downloadZip?: DownloadTiffZipFunction
+  downloadSelectionZip?: DownloadSelectionZipFunction
 }
 
 const ACCEPTED_FILE_TYPES = '.tif,.tiff,image/tiff'
@@ -55,6 +57,7 @@ export function TiffUpload({
   previewFile,
   downloadPng,
   downloadZip,
+  downloadSelectionZip,
 }: TiffUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const nextAdditionOrder = useRef(1)
@@ -476,6 +479,7 @@ export function TiffUpload({
             onClear={handleClearAllSelections}
             previewFile={previewFile}
             downloadPng={downloadPng}
+            downloadSelectionZip={downloadSelectionZip}
           />
         </div>
       )}

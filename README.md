@@ -5,7 +5,8 @@ microscopy TIFF files. It uploads one TIFF to temporary server storage, shows
 primary-series metadata, lets the user choose microscopy Time/Z/Channel and RGB
 color components, previews the selected plane, downloads it as PNG, and exports
 the complete T/Z/C stack as ZIP. Multiple planes from the active TIFF can also
-be pinned in an ordered thumbnail tray for later review and individual export.
+be pinned in an ordered thumbnail tray for later review, individual export, or
+one atomic selected-image ZIP export with a CSV manifest.
 
 There is no account, database, upload history, or persistent file storage.
 
@@ -22,6 +23,8 @@ There is no account, database, upload history, or persistent file storage.
 - An immutable single-TIFF selection tray with 240-pixel thumbnails, exact
   duplicate prevention, selection restoration, removal, and individual PNG
   downloads.
+- Atomic selected-image ZIP export with full-resolution PNGs grouped by source,
+  deterministic safe paths, and an ordered formula-safe `manifest.csv`.
 - Matching preview and PNG/ZIP output through shared extraction,
   canonicalization, normalization, and PNG encoding services.
 - Automatic temporary-upload expiration after 30 minutes by default.
@@ -106,9 +109,11 @@ Open `http://localhost:5173`. The default backend is
 5. Review the live preview.
 6. Select **Add to selection** to pin the current coordinates and RGB component;
    select a thumbnail later to restore that exact view.
-7. Download or remove individual pinned images, or clear the tray.
-8. Select **Download PNG** for the current plane.
-9. Select **Export Stack as ZIP** for all T/Z/C planes in the current RGB
+7. Select **Download selected (N) as ZIP** to export only the pinned images;
+   successful export leaves the tray unchanged.
+8. Download or remove individual pinned images, or clear the tray.
+9. Select **Download PNG** for the current plane.
+10. Select **Export Stack as ZIP** for all T/Z/C planes in the current RGB
    component mode.
 
 Replacing, clearing, or resetting a file restores T/Z/C to zero, restores RGB
@@ -124,12 +129,20 @@ releases browser object URLs.
 | `GET`  | `/api/tiff/{file_id}/preview?t=0&z=0&c=0&component=composite&max_size=240` | Preview one plane as PNG, optionally bounded by its longest edge |
 | `GET`  | `/api/tiff/{file_id}/export/png?t=0&z=0&c=0&component=composite`           | Download one plane as PNG                                        |
 | `GET`  | `/api/tiff/{file_id}/export/zip?component=composite`                       | Download all T/Z/C planes as ZIP                                 |
+| `POST` | `/api/exports/selection`                                                   | Download requested pinned planes as one atomic ZIP               |
 
 `component` accepts `composite`, `red`, `green`, or `blue`. Omission is
 backward-compatible and means `composite`. R/G/B is invalid for non-RGB data.
 `max_size` is optional and accepts `1` through `4096`; omission preserves the
 full-size preview. Resizing occurs only after normal extraction and
 normalization, never enlarges the image, and does not affect PNG or ZIP exports.
+
+The selected-image endpoint accepts ordered
+`file_id`/`t`/`z`/`c`/`component` items. It rejects empty or duplicate batches,
+more than 50 items, more than three distinct sources, or sources whose recorded
+sizes total more than 200 MB. The archive always creates a numbered source
+folder, includes one full-resolution PNG per request item, and writes
+`manifest.csv` in request order. A failure in any item fails the whole request.
 
 All API errors use this envelope:
 
@@ -154,6 +167,9 @@ All API errors use this envelope:
 | `INVALID_RGB_COMPONENT`   | Component is unknown or not valid for this image              |
 | `PROCESSING_ERROR`        | Preview/export or another unexpected operation failed safely  |
 | `INVALID_REQUEST`         | Required input is missing or a request parameter is malformed |
+| `EMPTY_SELECTION`         | Selected-image export contains no items                        |
+| `DUPLICATE_SELECTION`     | The same source/coordinate/component appears more than once    |
+| `BATCH_LIMIT_EXCEEDED`    | Selected-image item, source, or combined-size limit is exceeded |
 
 ## Runtime configuration
 

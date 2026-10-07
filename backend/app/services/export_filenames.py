@@ -7,7 +7,7 @@ _TIFF_EXTENSION = re.compile(r"(?i)\.tiff?$")
 _UNSAFE_FILENAME_CHARACTERS = re.compile(r"[^A-Za-z0-9._-]+")
 
 
-def _safe_source_basename(source_filename: str) -> str:
+def safe_source_basename(source_filename: str) -> str:
     client_basename = PurePosixPath(source_filename.replace("\\", "/")).name
     without_extension = _TIFF_EXTENSION.sub("", client_basename)
     safe_basename = _UNSAFE_FILENAME_CHARACTERS.sub("_", without_extension)
@@ -26,7 +26,7 @@ def build_png_export_filename(
     is_rgb: bool,
 ) -> str:
     """Build a deterministic ASCII filename safe for Content-Disposition."""
-    safe_basename = _safe_source_basename(source_filename)
+    safe_basename = safe_source_basename(source_filename)
 
     suffix = ""
     if is_rgb:
@@ -47,7 +47,7 @@ def build_zip_export_filename(
     is_rgb: bool,
 ) -> str:
     """Build a safe archive filename that distinguishes RGB component modes."""
-    safe_basename = _safe_source_basename(source_filename)
+    safe_basename = safe_source_basename(source_filename)
     suffix = ""
     if is_rgb:
         suffix = {
