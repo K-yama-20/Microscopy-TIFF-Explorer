@@ -5,10 +5,12 @@ import { useSelectionZipDownload } from '../hooks/useSelectionZipDownload'
 import type { PreviewTiffFunction } from '../hooks/useTiffPreview'
 import { useTiffPreview } from '../hooks/useTiffPreview'
 import type { PinnedSelection } from '../types/api'
+import type { WorkspaceFile } from '../types/workspace'
 import { getRgbComponentLabel } from '../utils/pinnedSelection'
 
 interface TiffSelectionTrayProps {
   selections: readonly PinnedSelection[]
+  sources: readonly WorkspaceFile[]
   onActivate: (selection: PinnedSelection) => void
   onRemove: (selectionId: string) => void
   onClear: () => void
@@ -19,6 +21,7 @@ interface TiffSelectionTrayProps {
 
 interface TiffSelectionTrayItemProps {
   selection: PinnedSelection
+  source?: WorkspaceFile
   onActivate: (selection: PinnedSelection) => void
   onRemove: (selectionId: string) => void
   previewFile?: PreviewTiffFunction
@@ -27,21 +30,25 @@ interface TiffSelectionTrayItemProps {
 
 const THUMBNAIL_MAX_SIZE = 240
 
-function getSelectionSummary(selection: PinnedSelection): string {
-  return `${selection.filename}, T ${selection.t}, Z ${selection.z}, C ${selection.c}, ${getRgbComponentLabel(selection.component, selection.is_rgb)}`
+function getSelectionSummary(
+  selection: PinnedSelection,
+  source?: WorkspaceFile,
+): string {
+  return `${source?.displayName ?? 'Unavailable TIFF'}, T ${selection.t}, Z ${selection.z}, C ${selection.c}, ${getRgbComponentLabel(selection.component, source?.metadata.is_rgb ?? false)}`
 }
 
 function TiffSelectionTrayItem({
   selection,
+  source,
   onActivate,
   onRemove,
   previewFile,
   downloadPng,
 }: TiffSelectionTrayItemProps) {
-  const summary = getSelectionSummary(selection)
+  const summary = getSelectionSummary(selection, source)
   const thumbnail = useTiffPreview(
     {
-      fileId: selection.file_id,
+      fileId: source?.status === 'ready' ? selection.file_id : undefined,
       t: selection.t,
       z: selection.z,
       c: selection.c,
@@ -71,6 +78,7 @@ function TiffSelectionTrayItem({
         className="selection-thumbnail"
         type="button"
         aria-label={`Show ${summary} in the main preview`}
+        disabled={!source}
         aria-busy={thumbnail.status === 'loading'}
         onClick={() => onActivate(selection)}
       >
@@ -84,6 +92,9 @@ function TiffSelectionTrayItem({
             {thumbnail.message}
           </span>
         )}
+        {source?.status !== 'ready' && thumbnail.status === 'idle' && (
+          <span className="selection-thumbnail__error">Source unavailable</span>
+        )}
         {thumbnail.status === 'success' && (
           <img
             src={thumbnail.objectUrl}
@@ -95,12 +106,17 @@ function TiffSelectionTrayItem({
       </button>
 
       <div className="selection-tray__details">
-        <strong title={selection.filename}>{selection.filename}</strong>
+        <strong title={source?.displayName}>
+          {source?.displayName ?? 'Unavailable TIFF'}
+        </strong>
         <span>
           T {selection.t} · Z {selection.z} · C {selection.c}
         </span>
         <span>
-          {getRgbComponentLabel(selection.component, selection.is_rgb)}
+          {getRgbComponentLabel(
+            selection.component,
+            source?.metadata.is_rgb ?? false,
+          )}
         </span>
       </div>
 
@@ -108,7 +124,10 @@ function TiffSelectionTrayItem({
         <button
           className="secondary-button selection-tray__download"
           type="button"
-          disabled={pngDownload.state.status === 'downloading'}
+          disabled={
+            source?.status !== 'ready' ||
+            pngDownload.state.status === 'downloading'
+          }
           aria-label={`Download ${summary} as PNG`}
           onClick={() => void pngDownload.startDownload()}
         >
@@ -137,6 +156,7 @@ function TiffSelectionTrayItem({
 
 export function TiffSelectionTray({
   selections,
+  sources,
   onActivate,
   onRemove,
   onClear,
@@ -206,6 +226,9 @@ export function TiffSelectionTray({
             <TiffSelectionTrayItem
               key={selection.id}
               selection={selection}
+              source={sources.find(
+                (source) => source.fileId === selection.file_id,
+              )}
               onActivate={onActivate}
               onRemove={onRemove}
               previewFile={previewFile}

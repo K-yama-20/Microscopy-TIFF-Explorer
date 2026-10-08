@@ -8,8 +8,6 @@ import {
 
 const baseSelection = {
   file_id: 'file-id',
-  filename: 'sample.tif',
-  is_rgb: true,
   t: 1,
   z: 2,
   c: 3,
@@ -38,9 +36,12 @@ describe('pinned selections', () => {
   it('uses file, coordinates, and component for exact duplicate identity', () => {
     const composite = createPinnedSelection(baseSelection, 1)
     const green = { ...baseSelection, component: 'green' as const }
+    const otherFile = { ...baseSelection, file_id: 'other-file-id' }
 
     expect(hasPinnedSelection([composite], baseSelection)).toBe(true)
     expect(hasPinnedSelection([composite], green)).toBe(false)
+    expect(hasPinnedSelection([composite], otherFile)).toBe(false)
     expect(getPinnedSelectionId(green)).not.toBe(composite.id)
+    expect(getPinnedSelectionId(otherFile)).not.toBe(composite.id)
   })
 })

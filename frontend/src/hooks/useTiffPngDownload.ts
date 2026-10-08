@@ -16,7 +16,7 @@ export type DownloadTiffPngFunction = (
 export type TiffPngDownloadState =
   | { status: 'idle' }
   | { status: 'downloading' }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; code?: string }
 
 interface UseTiffPngDownloadOptions extends PreviewSelection {
   fileId?: string
@@ -108,7 +108,11 @@ export function useTiffPngDownload(
         !(error instanceof DOMException && error.name === 'AbortError')
       ) {
         activeRequest.current = undefined
-        setState({ status: 'error', message: getDownloadErrorMessage(error) })
+        setState({
+          status: 'error',
+          message: getDownloadErrorMessage(error),
+          code: error instanceof ApiClientError ? error.code : undefined,
+        })
       }
     }
   }, [c, component, downloadFile, fileId, t, z])

@@ -213,6 +213,40 @@ export async function uploadTiff(
   return payload
 }
 
+export async function deleteTiff(
+  fileId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  let response: Response
+  try {
+    response = await fetch(
+      `${API_BASE_URL}/api/tiff/${encodeURIComponent(fileId)}`,
+      { method: 'DELETE', signal },
+    )
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error
+    }
+
+    throw new ApiClientError(
+      'NETWORK_ERROR',
+      'Could not reach the cleanup service. The TIFF will expire automatically.',
+    )
+  }
+
+  if (!response.ok) {
+    const payload = await readJson(response)
+    if (isApiErrorResponse(payload)) {
+      throw new ApiClientError(payload.error.code, payload.error.message)
+    }
+
+    throw new ApiClientError(
+      'DELETE_FAILED',
+      'The TIFF could not be removed from temporary storage and will expire automatically.',
+    )
+  }
+}
+
 export async function fetchTiffPreview(
   fileId: string,
   selection: PreviewSelection,

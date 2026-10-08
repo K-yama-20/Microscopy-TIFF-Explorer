@@ -16,7 +16,7 @@ export type DownloadTiffZipFunction = (
 export type TiffZipDownloadState =
   | { status: 'idle' }
   | { status: 'exporting' }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; code?: string }
 
 interface UseTiffZipDownloadOptions {
   fileId?: string
@@ -109,7 +109,11 @@ export function useTiffZipDownload(
         !(error instanceof DOMException && error.name === 'AbortError')
       ) {
         activeRequest.current = undefined
-        setState({ status: 'error', message: getDownloadErrorMessage(error) })
+        setState({
+          status: 'error',
+          message: getDownloadErrorMessage(error),
+          code: error instanceof ApiClientError ? error.code : undefined,
+        })
       }
     }
   }, [component, downloadFile, fileId])

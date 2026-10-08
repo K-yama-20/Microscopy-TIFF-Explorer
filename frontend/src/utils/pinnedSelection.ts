@@ -2,8 +2,6 @@ import type { PinnedSelection, RgbComponent } from '../types/api'
 
 export interface PinnedSelectionCandidate {
   file_id: string
-  filename: string
-  is_rgb: boolean
   t: number
   z: number
   c: number

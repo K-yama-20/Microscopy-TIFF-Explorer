@@ -253,6 +253,11 @@ a {
   border-color: #efa9a2;
 }
 
+.dropzone--disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
 .dropzone strong {
   color: #f4fbf8;
   font-size: 1rem;
@@ -402,6 +407,105 @@ a {
 
 .upload-status {
   color: #c8e8df;
+}
+
+.workspace-files {
+  padding: 14px;
+  margin-top: 16px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 14px;
+}
+
+.workspace-files__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workspace-files__header h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.workspace-files__header span {
+  color: #a9c5be;
+  font-size: 0.76rem;
+}
+
+.workspace-files__list {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 12px 0 0;
+  list-style: none;
+}
+
+.workspace-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 11px;
+}
+
+.workspace-file--active {
+  background: rgba(129, 217, 196, 0.13);
+  border-color: rgba(166, 229, 213, 0.66);
+}
+
+.workspace-file__activate {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 11px 12px;
+  color: #f4fbf8;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.workspace-file__activate:focus-visible,
+.workspace-file__remove:focus-visible {
+  outline: 3px solid #bdf4e6;
+  outline-offset: 2px;
+}
+
+.workspace-file__activate strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-file__activate span {
+  color: #acdacf;
+  font-size: 0.74rem;
+}
+
+.workspace-file__remove {
+  margin-right: 10px;
+}
+
+.workspace-announcement {
+  min-height: 1.2em;
+  margin: 10px 0 0;
+  color: #c8e8df;
+  font-size: 0.8rem;
+}
+
+.cleanup-warning,
+.expired-file {
+  padding: 12px 14px;
+  margin: 10px 0 0;
+  color: #ffe9e7;
+  background: rgba(178, 65, 54, 0.2);
+  border: 1px solid rgba(255, 184, 177, 0.3);
+  border-radius: 12px;
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
 
 .upload-result {
