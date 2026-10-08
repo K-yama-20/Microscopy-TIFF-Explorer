@@ -39,9 +39,9 @@ export function useTiffUpload(uploadFile: UploadTiffFunction = uploadTiff) {
   }, [])
 
   const startUpload = useCallback(
-    async (file: File) => {
+    async (file: File): Promise<UploadTiffResponse | undefined> => {
       if (activeRequest.current) {
-        return
+        return undefined
       }
 
       const request = {
@@ -56,6 +56,7 @@ export function useTiffUpload(uploadFile: UploadTiffFunction = uploadTiff) {
         if (activeRequest.current?.id === request.id) {
           activeRequest.current = undefined
           setState({ status: 'success', upload })
+          return upload
         }
       } catch (error) {
         if (
@@ -66,6 +67,7 @@ export function useTiffUpload(uploadFile: UploadTiffFunction = uploadTiff) {
           setState({ status: 'error', message: getUploadErrorMessage(error) })
         }
       }
+      return undefined
     },
     [uploadFile],
   )

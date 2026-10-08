@@ -31,8 +31,6 @@ export interface PreviewSelection {
 export interface PinnedSelection {
   readonly id: string
   readonly file_id: string
-  readonly filename: string
-  readonly is_rgb: boolean
   readonly t: number
   readonly z: number
   readonly c: number

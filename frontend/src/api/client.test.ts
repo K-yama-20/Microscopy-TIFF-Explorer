@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   ApiClientError,
+  deleteTiff,
   downloadSelectionZip,
   downloadTiffPng,
   downloadTiffZip,
@@ -13,6 +14,43 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+describe('deleteTiff', () => {
+  it('uses the opaque file ID in an idempotent DELETE request', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+
+    await expect(
+      deleteTiff('file/id', controller.signal),
+    ).resolves.toBeUndefined()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/api\/tiff\/file%2Fid$/),
+      { method: 'DELETE', signal: controller.signal },
+    )
+  })
+
+  it('returns structured cleanup errors without exposing response details', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        Response.json(
+          {
+            error: { code: 'FILE_NOT_FOUND', message: 'Invalid upload ID.' },
+          },
+          { status: 404 },
+        ),
+      ),
+    )
+
+    await expect(deleteTiff('invalid')).rejects.toEqual(
+      new ApiClientError('FILE_NOT_FOUND', 'Invalid upload ID.'),
+    )
+  })
 })
 
 describe('uploadTiff', () => {

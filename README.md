@@ -1,12 +1,13 @@
 # Microscopy TIFF Explorer
 
 Microscopy TIFF Explorer is a browser-based MVP for inspecting multidimensional
-microscopy TIFF files. It uploads one TIFF to temporary server storage, shows
-primary-series metadata, lets the user choose microscopy Time/Z/Channel and RGB
-color components, previews the selected plane, downloads it as PNG, and exports
-the complete T/Z/C stack as ZIP. Multiple planes from the active TIFF can also
-be pinned in an ordered thumbnail tray for later review, individual export, or
-one atomic selected-image ZIP export with a CSV manifest.
+microscopy TIFF files. It keeps up to three TIFFs in a temporary browser
+workspace, shows primary-series metadata, lets the user choose microscopy
+Time/Z/Channel and RGB color components per file, previews the selected plane,
+downloads it as PNG, and exports the complete T/Z/C stack as ZIP. Multiple
+planes from any workspace TIFF can be pinned in one ordered thumbnail tray for
+later review, individual export, or one atomic selected-image ZIP export with a
+CSV manifest.
 
 There is no account, database, upload history, or persistent file storage.
 
@@ -20,9 +21,11 @@ There is no account, database, upload history, or persistent file storage.
 - Metadata-confirmed RGB in interleaved `YXS`, planar `SYX`, and compatible
   T/Z/C combinations.
 - RGB composite plus Red, Green, and Blue grayscale component views.
-- An immutable single-TIFF selection tray with 240-pixel thumbnails, exact
-  duplicate prevention, selection restoration, removal, and individual PNG
-  downloads.
+- A three-file temporary workspace with per-file selector state, same-name
+  display labels, accessible switching, eager removal, and isolated failures.
+- An immutable shared selection tray with 240-pixel thumbnails, exact duplicate
+  prevention by source and coordinates, selection restoration, removal, and
+  individual PNG downloads.
 - Atomic selected-image ZIP export with full-resolution PNGs grouped by source,
   deterministic safe paths, and an ordered formula-safe `manifest.csv`.
 - Matching preview and PNG/ZIP output through shared extraction,
@@ -104,32 +107,37 @@ Open `http://localhost:5173`. The default backend is
 
 1. Choose or drag in a supported TIFF.
 2. Select **Upload TIFF** and review primary-series metadata.
-3. Choose available Time, Z, and microscopy Channel positions.
-4. For an RGB TIFF, separately choose RGB composite, Red, Green, or Blue.
-5. Review the live preview.
-6. Select **Add to selection** to pin the current coordinates and RGB component;
+3. Optionally choose another TIFF and select **Add TIFF**. Up to three files can
+   coexist, and the newest successful upload becomes active.
+4. Choose available Time, Z, and microscopy Channel positions. Switching files
+   restores each file's last selection.
+5. For an RGB TIFF, separately choose RGB composite, Red, Green, or Blue.
+6. Review the live preview.
+7. Select **Add to selection** to pin the current coordinates and RGB component;
    select a thumbnail later to restore that exact view.
-7. Select **Download selected (N) as ZIP** to export only the pinned images;
+8. Select **Download selected (N) as ZIP** to export only the pinned images;
    successful export leaves the tray unchanged.
-8. Download or remove individual pinned images, or clear the tray.
-9. Select **Download PNG** for the current plane.
-10. Select **Export Stack as ZIP** for all T/Z/C planes in the current RGB
+9. Download or remove individual pinned images, or clear the tray.
+10. Select **Download PNG** for the current plane.
+11. Select **Export Stack as ZIP** for all T/Z/C planes in the current RGB
    component mode.
 
-Replacing, clearing, or resetting a file restores T/Z/C to zero, restores RGB
-mode to composite, clears pinned selections, aborts stale browser requests, and
-releases browser object URLs.
+Removing a workspace file removes only its related pinned images after
+confirmation. Reset clears the browser workspace. File removal, switching, and
+reset abort obsolete requests and release browser object URLs. Workspace state
+is never written to browser storage and a reload starts empty.
 
 ## API
 
-| Method | Endpoint                                                                   | Purpose                                                          |
-| ------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `GET`  | `/health`                                                                  | Deployment readiness check                                       |
-| `POST` | `/api/tiff/upload`                                                         | Validate, temporarily store, and inspect a TIFF                  |
-| `GET`  | `/api/tiff/{file_id}/preview?t=0&z=0&c=0&component=composite&max_size=240` | Preview one plane as PNG, optionally bounded by its longest edge |
-| `GET`  | `/api/tiff/{file_id}/export/png?t=0&z=0&c=0&component=composite`           | Download one plane as PNG                                        |
-| `GET`  | `/api/tiff/{file_id}/export/zip?component=composite`                       | Download all T/Z/C planes as ZIP                                 |
-| `POST` | `/api/exports/selection`                                                   | Download requested pinned planes as one atomic ZIP               |
+| Method   | Endpoint                                                                   | Purpose                                                          |
+| -------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `GET`    | `/health`                                                                  | Deployment readiness check                                       |
+| `POST`   | `/api/tiff/upload`                                                         | Validate, temporarily store, and inspect a TIFF                  |
+| `DELETE` | `/api/tiff/{file_id}`                                                      | Eagerly release a temporary TIFF                                 |
+| `GET`    | `/api/tiff/{file_id}/preview?t=0&z=0&c=0&component=composite&max_size=240` | Preview one plane as PNG, optionally bounded by its longest edge |
+| `GET`    | `/api/tiff/{file_id}/export/png?t=0&z=0&c=0&component=composite`           | Download one plane as PNG                                        |
+| `GET`    | `/api/tiff/{file_id}/export/zip?component=composite`                       | Download all T/Z/C planes as ZIP                                 |
+| `POST`   | `/api/exports/selection`                                                   | Download requested pinned planes as one atomic ZIP               |
 
 `component` accepts `composite`, `red`, `green`, or `blue`. Omission is
 backward-compatible and means `composite`. R/G/B is invalid for non-RGB data.
@@ -197,6 +205,11 @@ the source TIFF while it is being read. Once expired, new requests receive
 `FILE_NOT_FOUND`; an already-running request completes and the file is removed
 when its lease ends. On startup, cleanup also removes old UUID-named `.tif` and
 `.tiff` files left by an earlier process, while ignoring unrelated files.
+
+Workspace removal calls the idempotent DELETE endpoint. A leased file becomes
+unavailable to new work immediately, but physical deletion waits for the final
+lease. If the browser cannot confirm DELETE, local removal still succeeds and
+TTL cleanup remains the fallback.
 
 PNG output is generated in memory. ZIP output uses a spooled temporary stream
 that is closed after normal delivery, generation failure, or interrupted

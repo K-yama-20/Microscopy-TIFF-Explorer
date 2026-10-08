@@ -234,7 +234,7 @@ describe('single-TIFF selection tray', () => {
     expect(container.textContent).toContain('No images selected')
   })
 
-  it('revokes thumbnail URLs on removal, clear-all, replacement, and unmount', async () => {
+  it('revokes thumbnail URLs on removal, clear-all, workspace reset, and unmount', async () => {
     await chooseAndUpload(container)
     await act(async () => findButton(container, 'Add to selection')?.click())
     const firstThumbnailUrl = createdUrls[1]
@@ -268,9 +268,14 @@ describe('single-TIFF selection tray', () => {
       },
     })
     act(() => dropzone?.dispatchEvent(replacementDrop))
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(
+      replacementThumbnailUrl,
+    )
+
+    act(() => findButton(container, 'Reset')?.click())
     expect(URL.revokeObjectURL).toHaveBeenCalledWith(replacementThumbnailUrl)
 
-    await act(async () => findButton(container, 'Upload TIFF')?.click())
+    await chooseAndUpload(container, 'after-reset.tif')
     await act(async () => findButton(container, 'Add to selection')?.click())
     const unmountThumbnailUrl = createdUrls.at(-1)
 
@@ -323,7 +328,7 @@ describe('single-TIFF selection tray', () => {
     ).toBe(false)
   })
 
-  it('prevents duplicate batch actions and aborts on replacement, reset, and unmount', async () => {
+  it('prevents duplicate batch actions and aborts on reset and unmount', async () => {
     let pendingSignal: AbortSignal | undefined
     downloadSelectionZip.mockImplementation((_items, signal) => {
       pendingSignal = signal
@@ -350,11 +355,8 @@ describe('single-TIFF selection tray', () => {
       },
     })
     act(() => dropzone?.dispatchEvent(replacementDrop))
-    expect(pendingSignal?.aborted).toBe(true)
+    expect(pendingSignal?.aborted).toBe(false)
 
-    await act(async () => findButton(container, 'Upload TIFF')?.click())
-    await act(async () => findButton(container, 'Add to selection')?.click())
-    act(() => findButton(container, 'Download selected (1) as ZIP')?.click())
     const resetSignal = pendingSignal
     act(() => findButton(container, 'Reset')?.click())
     expect(resetSignal?.aborted).toBe(true)

@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Request, UploadFile
+from uuid import UUID
 
-from app.models.errors import ErrorResponse
+from fastapi import APIRouter, Request, Response, UploadFile
+
+from app.models.errors import ErrorResponse, FileNotFoundError
 from app.models.upload import UploadResponse
 from app.services.temporary_files import TemporaryFileManager
 from app.services.tiff_metadata import parse_tiff_metadata
@@ -47,3 +49,23 @@ def upload_tiff(file: UploadFile, request: Request) -> UploadResponse:
         filename=stored_upload.filename,
         metadata=metadata,
     )
+
+
+@router.delete(
+    "/{file_id}",
+    status_code=204,
+    responses={
+        204: {"description": "The temporary upload is no longer available."},
+        404: {"model": ErrorResponse, "description": "Invalid upload ID."},
+    },
+)
+def delete_tiff(file_id: str, request: Request) -> Response:
+    """Make an upload unavailable and remove it when its final lease ends."""
+    try:
+        parsed_file_id = UUID(file_id)
+    except ValueError:
+        raise FileNotFoundError from None
+
+    manager: TemporaryFileManager = request.app.state.temporary_file_manager
+    manager.remove(parsed_file_id)
+    return Response(status_code=204)

@@ -14,7 +14,7 @@ export type TiffPreviewState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'success'; objectUrl: string }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; code?: string }
 
 interface UseTiffPreviewOptions extends PreviewSelection {
   fileId?: string
@@ -95,7 +95,11 @@ export function useTiffPreview(
           !(error instanceof DOMException && error.name === 'AbortError')
         ) {
           activeRequest.current = undefined
-          setState({ status: 'error', message: getPreviewErrorMessage(error) })
+          setState({
+            status: 'error',
+            message: getPreviewErrorMessage(error),
+            code: error instanceof ApiClientError ? error.code : undefined,
+          })
         }
       })
 

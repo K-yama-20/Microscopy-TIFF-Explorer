@@ -56,9 +56,10 @@ function findButton(container: HTMLElement, label: string) {
 function successfulUpload(
   filename = 'sample.tif',
   metadataOverrides: Partial<TiffMetadata> = {},
+  fileId = '95ed59ce-198b-4f17-89da-74e17d457df3',
 ): UploadTiffResponse {
   return {
-    file_id: '95ed59ce-198b-4f17-89da-74e17d457df3',
+    file_id: fileId,
     filename,
     metadata: {
       shape: [2, 3, 4, 5, 7],
@@ -118,6 +119,17 @@ async function selectAndUpload(
     dispatchDragEvent(getDropzone(container), 'drop', [createFile(filename)]),
   )
   await act(async () => findButton(container, 'Upload TIFF')?.click())
+}
+
+async function addWorkspaceFile(container: HTMLElement, filename: string) {
+  act(() =>
+    dispatchDragEvent(getDropzone(container), 'drop', [createFile(filename)]),
+  )
+  await act(async () =>
+    (
+      findButton(container, 'Add TIFF') ?? findButton(container, 'Upload TIFF')
+    )?.click(),
+  )
 }
 
 describe('TiffUpload', () => {
@@ -331,7 +343,7 @@ describe('TiffUpload', () => {
     )
   })
 
-  it('resets the component for upload, replacement, Reset, and Clear', async () => {
+  it('defaults a newly added file to composite and restores each file component', async () => {
     const rgbUpload = successfulUpload('rgb.tif', {
       shape: [5, 7, 3],
       axes: 'YXS',
@@ -343,7 +355,17 @@ describe('TiffUpload', () => {
       sample_count: 3,
       rgb_components: ['red', 'green', 'blue'],
     })
-    const uploadFile: UploadTiffFunction = vi.fn().mockResolvedValue(rgbUpload)
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValueOnce(rgbUpload)
+      .mockResolvedValueOnce({
+        ...rgbUpload,
+        file_id: 'f5d2c947-acde-4d14-9cfb-711351011111',
+      })
+      .mockResolvedValueOnce({
+        ...rgbUpload,
+        file_id: 'f5d2c947-acde-4d14-9cfb-711351033333',
+      })
     const previewFile: PreviewTiffFunction = vi
       .fn()
       .mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
@@ -357,44 +379,28 @@ describe('TiffUpload', () => {
     await act(async () =>
       changeSelectValue(getSelectByLabel(container, 'Color component')!, 'red'),
     )
-    await act(async () => findButton(container, 'Upload TIFF')?.click())
-    expect(getSelectByLabel(container, 'Color component')?.value).toBe(
-      'composite',
-    )
-
-    await act(async () =>
-      changeSelectValue(
-        getSelectByLabel(container, 'Color component')!,
-        'blue',
-      ),
-    )
     act(() =>
       dispatchDragEvent(getDropzone(container), 'drop', [
-        createFile('replacement.tif'),
+        createFile('second.tif'),
       ]),
     )
-    await act(async () => findButton(container, 'Upload TIFF')?.click())
+    expect(getSelectByLabel(container, 'Color component')?.value).toBe('red')
+
+    await act(async () => findButton(container, 'Add TIFF')?.click())
     expect(getSelectByLabel(container, 'Color component')?.value).toBe(
       'composite',
     )
 
-    await act(async () =>
-      changeSelectValue(
-        getSelectByLabel(container, 'Color component')!,
-        'green',
+    const firstFileButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        '.workspace-file__activate',
       ),
-    )
+    ).find((button) => button.textContent?.includes('rgb.tif'))
+    act(() => firstFileButton?.click())
+    expect(getSelectByLabel(container, 'Color component')?.value).toBe('red')
+
     act(() => findButton(container, 'Reset')?.click())
     await selectAndUpload(container, 'after-reset.tif')
-    expect(getSelectByLabel(container, 'Color component')?.value).toBe(
-      'composite',
-    )
-
-    await act(async () =>
-      changeSelectValue(getSelectByLabel(container, 'Color component')!, 'red'),
-    )
-    act(() => findButton(container, 'Clear')?.click())
-    await selectAndUpload(container, 'after-clear.tif')
     expect(getSelectByLabel(container, 'Color component')?.value).toBe(
       'composite',
     )
@@ -656,7 +662,7 @@ describe('TiffUpload', () => {
     expect(zipSignals.at(-1)?.aborted).toBe(true)
   })
 
-  it('aborts ZIP export on replacement, Reset, Clear, and unmount', async () => {
+  it('keeps active exports while choosing a file and aborts on Reset and unmount', async () => {
     const signals: AbortSignal[] = []
     const downloadZip: DownloadTiffZipFunction = vi.fn(
       (_fileId, _component, signal) => {
@@ -682,26 +688,19 @@ describe('TiffUpload', () => {
         createFile('replacement.tif'),
       ]),
     )
-    expect(signals.at(-1)?.aborted).toBe(true)
+    expect(signals.at(-1)?.aborted).toBe(false)
 
-    await act(async () => findButton(container, 'Upload TIFF')?.click())
-    act(() => findButton(container, 'Export Stack as ZIP')?.click())
     act(() => findButton(container, 'Reset')?.click())
     expect(signals.at(-1)?.aborted).toBe(true)
 
     await selectAndUpload(container, 'after-reset.tif')
-    act(() => findButton(container, 'Export Stack as ZIP')?.click())
-    act(() => findButton(container, 'Clear')?.click())
-    expect(signals.at(-1)?.aborted).toBe(true)
-
-    await selectAndUpload(container, 'before-unmount.tif')
     act(() => findButton(container, 'Export Stack as ZIP')?.click())
     act(() => root.unmount())
     expect(signals.at(-1)?.aborted).toBe(true)
     root = createRoot(container)
   })
 
-  it('clears download errors and aborts work for replacement, Reset, and Clear', async () => {
+  it('preserves active download state while choosing a file and clears it on Reset', async () => {
     let pendingSignal: AbortSignal | undefined
     const downloadPng: DownloadTiffPngFunction = vi.fn(
       (_fileId, _selection, signal) => {
@@ -728,9 +727,10 @@ describe('TiffUpload', () => {
         createFile('replacement.tif'),
       ]),
     )
+    expect(container.textContent).toContain('Download failed safely.')
+    act(() => findButton(container, 'Reset')?.click())
     expect(container.textContent).not.toContain('Download failed safely.')
 
-    await act(async () => findButton(container, 'Upload TIFF')?.click())
     const neverSettles: DownloadTiffPngFunction = vi.fn(
       (_fileId, _selection, signal) => {
         pendingSignal = signal
@@ -742,13 +742,9 @@ describe('TiffUpload', () => {
         <TiffUpload uploadFile={uploadFile} downloadPng={neverSettles} />,
       ),
     )
-    act(() => findButton(container, 'Download PNG')?.click())
-    act(() => findButton(container, 'Reset')?.click())
-    expect(pendingSignal?.aborted).toBe(true)
-
     await selectAndUpload(container, 'after-reset.tif')
     act(() => findButton(container, 'Download PNG')?.click())
-    act(() => findButton(container, 'Clear')?.click())
+    act(() => findButton(container, 'Reset')?.click())
     expect(pendingSignal?.aborted).toBe(true)
   })
 
@@ -834,7 +830,7 @@ describe('TiffUpload', () => {
     await act(async () =>
       resolvers[2](new Blob(['newest'], { type: 'image/png' })),
     )
-    act(() => findButton(container, 'Clear')?.click())
+    act(() => findButton(container, 'Reset')?.click())
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:newest')
   })
 
@@ -985,13 +981,17 @@ describe('TiffUpload', () => {
       .fn()
       .mockResolvedValueOnce(successfulUpload('first.tif'))
       .mockResolvedValueOnce(
-        successfulUpload('second.tif', {
-          shape: [2, 5, 7],
-          axes: 'ZYX',
-          time_points: 1,
-          z_slices: 2,
-          channels: 1,
-        }),
+        successfulUpload(
+          'second.tif',
+          {
+            shape: [2, 5, 7],
+            axes: 'ZYX',
+            time_points: 1,
+            z_slices: 2,
+            channels: 1,
+          },
+          'f5d2c947-acde-4d14-9cfb-711351022222',
+        ),
       )
     act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
     await selectAndUpload(container, 'first.tif')
@@ -1007,9 +1007,11 @@ describe('TiffUpload', () => {
         createFile('second.tif'),
       ]),
     )
-    expect(container.querySelector('.dimension-selectors')).toBeNull()
+    expect(getSelectByLabel(container, 'Time')?.value).toBe('1')
+    expect(getSelectByLabel(container, 'Z')?.value).toBe('2')
+    expect(getSelectByLabel(container, 'Channel')?.value).toBe('3')
 
-    await act(async () => findButton(container, 'Upload TIFF')?.click())
+    await act(async () => findButton(container, 'Add TIFF')?.click())
 
     expect(getSelectByLabel(container, 'Time')).toBeNull()
     expect(getSelectByLabel(container, 'Channel')).toBeNull()
@@ -1066,27 +1068,29 @@ describe('TiffUpload', () => {
     expect(getSelectByLabel(container, 'Channel')?.value).toBe('0')
   })
 
-  it('clears metadata and selectors when Clear is pressed', async () => {
+  it('clears only the pending file while keeping active metadata and selectors', async () => {
     const uploadFile: UploadTiffFunction = vi
       .fn()
       .mockResolvedValue(successfulUpload())
     act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
     await selectAndUpload(container)
 
-    act(() => changeSelect(getSelectByLabel(container, 'Z')!, 2))
+    await act(async () => changeSelect(getSelectByLabel(container, 'Z')!, 2))
+    act(() =>
+      dispatchDragEvent(getDropzone(container), 'drop', [
+        createFile('pending.tif'),
+      ]),
+    )
     act(() => findButton(container, 'Clear')?.click())
 
-    expect(container.querySelector('.tiff-metadata')).toBeNull()
-    expect(container.querySelector('.dimension-selectors')).toBeNull()
-    expect(container.textContent).not.toContain('Upload complete')
-
-    await selectAndUpload(container, 'after-clear.tif')
-    expect(getSelectByLabel(container, 'Time')?.value).toBe('0')
-    expect(getSelectByLabel(container, 'Z')?.value).toBe('0')
-    expect(getSelectByLabel(container, 'Channel')?.value).toBe('0')
+    expect(container.querySelector('.tiff-metadata')).not.toBeNull()
+    expect(container.querySelector('.dimension-selectors')).not.toBeNull()
+    expect(container.textContent).toContain('Upload complete')
+    expect(container.textContent).not.toContain('pending.tif')
+    expect(getSelectByLabel(container, 'Z')?.value).toBe('2')
   })
 
-  it('clears previous metadata when a replacement file is selected', async () => {
+  it('keeps active metadata while another file is selected for upload', async () => {
     const uploadFile: UploadTiffFunction = vi
       .fn()
       .mockResolvedValue(successfulUpload())
@@ -1105,8 +1109,8 @@ describe('TiffUpload', () => {
       ]),
     )
 
-    expect(container.querySelector('.tiff-metadata')).toBeNull()
-    expect(container.textContent).not.toContain('Upload complete')
+    expect(container.querySelector('.tiff-metadata')).not.toBeNull()
+    expect(container.textContent).toContain('Upload complete')
     expect(container.textContent).toContain('replacement.tif')
   })
 
@@ -1131,5 +1135,416 @@ describe('TiffUpload', () => {
 
     expect(container.textContent).not.toContain('Upload failed.')
     expect(container.textContent).toContain('replacement.tiff')
+  })
+
+  it('adds three files, activates the newest, disambiguates names, and blocks a fourth', async () => {
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValueOnce(
+        successfulUpload(
+          'sample.tif',
+          {},
+          '11111111-1111-4111-8111-111111111111',
+        ),
+      )
+      .mockResolvedValueOnce(
+        successfulUpload(
+          'sample.tif',
+          {},
+          '22222222-2222-4222-8222-222222222222',
+        ),
+      )
+      .mockResolvedValueOnce(
+        successfulUpload(
+          'sample.tif',
+          {},
+          '33333333-3333-4333-8333-333333333333',
+        ),
+      )
+    act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
+
+    await addWorkspaceFile(container, 'sample.tif')
+    await addWorkspaceFile(container, 'sample.tif')
+    await addWorkspaceFile(container, 'sample.tif')
+
+    const fileButtons = container.querySelectorAll<HTMLButtonElement>(
+      '.workspace-file__activate',
+    )
+    expect(fileButtons).toHaveLength(3)
+    expect(
+      Array.from(
+        fileButtons,
+        (button) => button.querySelector('strong')?.textContent,
+      ),
+    ).toEqual(['sample.tif', 'sample.tif (2)', 'sample.tif (3)'])
+    expect(fileButtons[2].getAttribute('aria-pressed')).toBe('true')
+    expect(getDropzone(container).getAttribute('aria-disabled')).toBe('true')
+
+    act(() =>
+      dispatchDragEvent(getDropzone(container), 'drop', [
+        createFile('fourth.tif'),
+      ]),
+    )
+    expect(uploadFile).toHaveBeenCalledTimes(3)
+    expect(container.textContent).toContain('Workspace limit reached')
+    expect(container.textContent).not.toContain('fourth.tif')
+  })
+
+  it('isolates a failed addition and allows retry without clearing files or pins', async () => {
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValueOnce(
+        successfulUpload(
+          'first.tif',
+          {},
+          '11111111-1111-4111-8111-111111111111',
+        ),
+      )
+      .mockRejectedValueOnce(new ApiClientError('UPLOAD_FAILED', 'Add failed.'))
+      .mockResolvedValueOnce(
+        successfulUpload(
+          'second.tif',
+          {},
+          '22222222-2222-4222-8222-222222222222',
+        ),
+      )
+    const previewFile: PreviewTiffFunction = vi
+      .fn()
+      .mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} previewFile={previewFile} />,
+      ),
+    )
+    await addWorkspaceFile(container, 'first.tif')
+    await act(async () => findButton(container, 'Add to selection')?.click())
+
+    await addWorkspaceFile(container, 'second.tif')
+    expect(container.textContent).toContain('Add failed.')
+    expect(container.querySelectorAll('.workspace-file')).toHaveLength(1)
+    expect(container.querySelectorAll('.selection-tray__item')).toHaveLength(1)
+
+    await act(async () => findButton(container, 'Add TIFF')?.click())
+    expect(container.querySelectorAll('.workspace-file')).toHaveLength(2)
+    expect(container.querySelectorAll('.selection-tray__item')).toHaveLength(1)
+  })
+
+  it('restores independent selectors and aborts the previous active preview', async () => {
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValueOnce(
+        successfulUpload(
+          'first.tif',
+          {},
+          '11111111-1111-4111-8111-111111111111',
+        ),
+      )
+      .mockResolvedValueOnce(
+        successfulUpload(
+          'second.tif',
+          {},
+          '22222222-2222-4222-8222-222222222222',
+        ),
+      )
+    const signals: AbortSignal[] = []
+    const previewFile: PreviewTiffFunction = vi.fn(
+      (_fileId, _selection, signal) => {
+        if (signal) signals.push(signal)
+        return new Promise<Blob>(() => undefined)
+      },
+    )
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} previewFile={previewFile} />,
+      ),
+    )
+    await addWorkspaceFile(container, 'first.tif')
+    act(() => {
+      changeSelect(getSelectByLabel(container, 'Time')!, 1)
+      changeSelect(getSelectByLabel(container, 'Z')!, 2)
+      changeSelect(getSelectByLabel(container, 'Channel')!, 3)
+    })
+    const firstActiveSignal = signals.at(-1)
+
+    await addWorkspaceFile(container, 'second.tif')
+    expect(firstActiveSignal?.aborted).toBe(true)
+    expect(getSelectByLabel(container, 'Time')?.value).toBe('0')
+    expect(getSelectByLabel(container, 'Z')?.value).toBe('0')
+    expect(getSelectByLabel(container, 'Channel')?.value).toBe('0')
+
+    const [firstButton, secondButton] = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        '.workspace-file__activate',
+      ),
+    )
+    act(() => firstButton.click())
+    expect(getSelectByLabel(container, 'Time')?.value).toBe('1')
+    expect(getSelectByLabel(container, 'Z')?.value).toBe('2')
+    expect(getSelectByLabel(container, 'Channel')?.value).toBe('3')
+    act(() => secondButton.click())
+    expect(getSelectByLabel(container, 'Time')?.value).toBe('0')
+  })
+
+  it('ignores a late preview response from the previously active file', async () => {
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValueOnce(
+        successfulUpload(
+          'first.tif',
+          {},
+          '11111111-1111-4111-8111-111111111111',
+        ),
+      )
+      .mockResolvedValueOnce(
+        successfulUpload(
+          'second.tif',
+          {},
+          '22222222-2222-4222-8222-222222222222',
+        ),
+      )
+    const resolvers: Array<(blob: Blob) => void> = []
+    const previewFile: PreviewTiffFunction = vi.fn(
+      () =>
+        new Promise<Blob>((resolve) => {
+          resolvers.push(resolve)
+        }),
+    )
+    vi.mocked(URL.createObjectURL).mockReturnValue('blob:second-file')
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} previewFile={previewFile} />,
+      ),
+    )
+
+    await addWorkspaceFile(container, 'first.tif')
+    await addWorkspaceFile(container, 'second.tif')
+    await act(async () =>
+      resolvers[1](new Blob(['second'], { type: 'image/png' })),
+    )
+    await act(async () =>
+      resolvers[0](new Blob(['first-late'], { type: 'image/png' })),
+    )
+
+    expect(URL.createObjectURL).toHaveBeenCalledOnce()
+    expect(
+      container.querySelector<HTMLImageElement>('.preview-image')?.src,
+    ).toBe('blob:second-file')
+    expect(container.textContent).toContain('Active TIFF: second.tif')
+  })
+
+  it('shares pins across files and preserves file IDs for activation and ZIP export', async () => {
+    const firstId = '11111111-1111-4111-8111-111111111111'
+    const secondId = '22222222-2222-4222-8222-222222222222'
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValueOnce(successfulUpload('first.tif', {}, firstId))
+      .mockResolvedValueOnce(successfulUpload('second.tif', {}, secondId))
+    const previewFile: PreviewTiffFunction = vi
+      .fn()
+      .mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    const downloadSelectionZip = vi.fn().mockResolvedValue({
+      blob: new Blob(['zip'], { type: 'application/zip' }),
+      filename: 'microscopy-selection.zip',
+    })
+    const downloadPng: DownloadTiffPngFunction = vi.fn().mockResolvedValue({
+      blob: new Blob(['png'], { type: 'image/png' }),
+      filename: 'first.png',
+    })
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
+      () => undefined,
+    )
+    act(() =>
+      root.render(
+        <TiffUpload
+          uploadFile={uploadFile}
+          previewFile={previewFile}
+          downloadPng={downloadPng}
+          downloadSelectionZip={downloadSelectionZip}
+        />,
+      ),
+    )
+
+    await addWorkspaceFile(container, 'first.tif')
+    await act(async () => findButton(container, 'Add to selection')?.click())
+    await addWorkspaceFile(container, 'second.tif')
+    await act(async () => findButton(container, 'Add to selection')?.click())
+
+    expect(container.querySelectorAll('.selection-tray__item')).toHaveLength(2)
+    expect(container.textContent).toContain('first.tif')
+    expect(container.textContent).toContain('second.tif')
+
+    const firstThumbnail = container.querySelector<HTMLButtonElement>(
+      `.selection-tray__item[data-selection-id^="${firstId}"] .selection-thumbnail`,
+    )
+    await act(async () => firstThumbnail?.click())
+    const firstFileButton = container.querySelector<HTMLButtonElement>(
+      '.workspace-file__activate',
+    )
+    expect(firstFileButton?.getAttribute('aria-pressed')).toBe('true')
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          `.selection-tray__item[data-selection-id^="${firstId}"] .selection-tray__download`,
+        )
+        ?.click(),
+    )
+    expect(downloadPng).toHaveBeenCalledWith(
+      firstId,
+      { t: 0, z: 0, c: 0, component: 'composite' },
+      expect.any(AbortSignal),
+    )
+
+    await act(async () =>
+      findButton(container, 'Download selected (2) as ZIP')?.click(),
+    )
+    expect(downloadSelectionZip).toHaveBeenCalledWith(
+      [
+        { file_id: firstId, t: 0, z: 0, c: 0, component: 'composite' },
+        { file_id: secondId, t: 0, z: 0, c: 0, component: 'composite' },
+      ],
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('confirms dependent removal, removes only that file pins, and selects the next file', async () => {
+    const ids = [
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+      '33333333-3333-4333-8333-333333333333',
+    ]
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValueOnce(successfulUpload('first.tif', {}, ids[0]))
+      .mockResolvedValueOnce(successfulUpload('second.tif', {}, ids[1]))
+      .mockResolvedValueOnce(successfulUpload('third.tif', {}, ids[2]))
+    const previewFile: PreviewTiffFunction = vi
+      .fn()
+      .mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    const deleteFile = vi.fn().mockResolvedValue(undefined)
+    const confirm = vi
+      .spyOn(window, 'confirm')
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true)
+    act(() =>
+      root.render(
+        <TiffUpload
+          uploadFile={uploadFile}
+          previewFile={previewFile}
+          deleteFile={deleteFile}
+        />,
+      ),
+    )
+    await addWorkspaceFile(container, 'first.tif')
+    await addWorkspaceFile(container, 'second.tif')
+    await act(async () => findButton(container, 'Add to selection')?.click())
+    await addWorkspaceFile(container, 'third.tif')
+
+    const removeSecond = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Remove second.tif from workspace"]',
+    )
+    act(() => removeSecond?.click())
+    expect(container.querySelectorAll('.workspace-file')).toHaveLength(3)
+    expect(container.querySelectorAll('.selection-tray__item')).toHaveLength(1)
+
+    const secondButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        '.workspace-file__activate',
+      ),
+    )[1]
+    act(() => secondButton.click())
+    vi.mocked(URL.revokeObjectURL).mockClear()
+    await act(async () => removeSecond?.click())
+
+    expect(container.querySelectorAll('.workspace-file')).toHaveLength(2)
+    expect(container.querySelectorAll('.selection-tray__item')).toHaveLength(0)
+    expect(URL.revokeObjectURL).toHaveBeenCalled()
+    expect(deleteFile).toHaveBeenCalledWith(ids[1])
+    const remainingButtons = container.querySelectorAll<HTMLButtonElement>(
+      '.workspace-file__activate',
+    )
+    expect(remainingButtons[1].textContent).toContain('third.tif')
+    expect(remainingButtons[1].getAttribute('aria-pressed')).toBe('true')
+    expect(confirm).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps local removal complete when DELETE fails', async () => {
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(
+        successfulUpload(
+          'sample.tif',
+          {},
+          '11111111-1111-4111-8111-111111111111',
+        ),
+      )
+    const deleteFile = vi.fn().mockRejectedValue(new Error('offline'))
+    const confirm = vi.spyOn(window, 'confirm')
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} deleteFile={deleteFile} />,
+      ),
+    )
+    await addWorkspaceFile(container, 'sample.tif')
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Remove sample.tif from workspace"]',
+        )
+        ?.click(),
+    )
+
+    expect(container.querySelectorAll('.workspace-file')).toHaveLength(0)
+    expect(confirm).not.toHaveBeenCalled()
+    expect(container.textContent).toContain('removed locally')
+    expect(container.textContent).toContain('expire automatically')
+  })
+
+  it('marks only the missing active file expired and keeps another file usable', async () => {
+    const firstId = '11111111-1111-4111-8111-111111111111'
+    const secondId = '22222222-2222-4222-8222-222222222222'
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValueOnce(successfulUpload('first.tif', {}, firstId))
+      .mockResolvedValueOnce(successfulUpload('second.tif', {}, secondId))
+    const previewFile: PreviewTiffFunction = vi.fn((fileId) =>
+      fileId === secondId
+        ? Promise.reject(
+            new ApiClientError('FILE_NOT_FOUND', 'The TIFF expired.'),
+          )
+        : Promise.resolve(new Blob(['png'], { type: 'image/png' })),
+    )
+    act(() =>
+      root.render(
+        <TiffUpload uploadFile={uploadFile} previewFile={previewFile} />,
+      ),
+    )
+    await addWorkspaceFile(container, 'first.tif')
+    await addWorkspaceFile(container, 'second.tif')
+
+    expect(container.querySelectorAll('.workspace-file')).toHaveLength(2)
+    expect(container.textContent).toContain('This TIFF is no longer available')
+    expect(container.textContent).toContain('Expired')
+
+    const firstButton = container.querySelector<HTMLButtonElement>(
+      '.workspace-file__activate',
+    )
+    await act(async () => firstButton?.click())
+    expect(container.textContent).toContain('Active TIFF: first.tif')
+    expect(container.querySelector('.preview-error')).toBeNull()
+  })
+
+  it('does not persist workspace state in browser storage', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    const uploadFile: UploadTiffFunction = vi
+      .fn()
+      .mockResolvedValue(successfulUpload())
+    act(() => root.render(<TiffUpload uploadFile={uploadFile} />))
+
+    await addWorkspaceFile(container, 'sample.tif')
+    await act(async () => changeSelect(getSelectByLabel(container, 'Z')!, 1))
+
+    expect(setItem).not.toHaveBeenCalled()
   })
 })
